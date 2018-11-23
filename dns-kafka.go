@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log"
@@ -14,13 +15,8 @@ import (
 	"github.com/miekg/dns"
 )
 
-func launchReader() {
+func launchReader(db *bolt.DB) {
 	log.Print("Read from kafka topic")
-
-	db, err := bolt.Open("/tmp/my.db", 0600, nil)
-	if err != nil {
-		log.Fatal(err)
-	}
 
 	r := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:   []string{"localhost:9092"},
@@ -140,11 +136,11 @@ func handleReflect(w dns.ResponseWriter, r *dns.Msg) {
 
 func A(rr string) *dns.A { r, _ := dns.NewRR(rr); return r.(*dns.A) }
 
-func serve() {
+func serve(db *bolt.DB) {
 
 	dns.HandleFunc(".", func(w dns.ResponseWriter, r *dns.Msg) {
 
-		log.Printf(r.String())
+		log.Printf(r.Question[0].Name)
 		/*
 			t := &dns.TXT{
 				Hdr: dns.RR_Header{Name: "clever-example.com", Rrtype: dns.TypeTXT, Class: dns.ClassINET, Ttl: 0},
@@ -157,6 +153,19 @@ func serve() {
 			//m.Authoritative = true
 			//m.Ns = []dns.RR{NewRR("$ORIGIN plopitude.forta.\n")}
 			m.Extra = append(m.Extra, t)*/
+
+		db.View(func(tx *bolt.Tx) error {
+			// Assume bucket exists and has keys
+			c := tx.Bucket([]byte("records")).Cursor()
+
+			prefix := []byte(r.Question[0].Name)
+			for k, v := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, v = c.Next() {
+				log.Printf("key=%s, value=%s", k, v)
+
+			}
+
+			return nil
+		})
 		m.Answer = append(m.Answer, A("zenaton-rabbitmq-c1-n3.services.clever-cloud.com. IN A 127.0.0.1"))
 
 		w.WriteMsg(m)
@@ -178,9 +187,14 @@ func serve() {
 func main() {
 	sig := make(chan os.Signal)
 
-	//	go launchReader()
+	db, err := bolt.Open("/tmp/my.db", 0600, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	go serve()
+	//go launchReader(db)
+
+	go serve(db)
 
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	s := <-sig
