@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -14,6 +15,14 @@ import (
 
 	"github.com/miekg/dns"
 )
+
+type Record struct {
+	Name     string
+	Type     string
+	Content  string
+	Ttl      int
+	Priority int
+}
 
 func launchReader(db *bolt.DB) {
 	log.Print("Read from kafka topic")
@@ -160,7 +169,9 @@ func serve(db *bolt.DB) {
 
 			prefix := []byte(r.Question[0].Name)
 			for k, v := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, v = c.Next() {
-				log.Printf("key=%s, value=%s", k, v)
+				var r []Record
+				json.Unmarshal([]byte(v), &r)
+				log.Printf("records: %+v", r)
 
 			}
 
