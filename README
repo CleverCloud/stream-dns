@@ -13,3 +13,5 @@ https://github.com/segmentio/kafka-go
  3480  dig @localhost -p 8053 zenaton-rabbitmq-c1-n3.services.clever-cloud.com
  3482  dig @localhost -p 8053dig @localhost -p 8053 zenaton-rabbitmq-c1-n3.services.clever-cloud.com
  3483  dig @localhost -p 8053 zenaton-rabbitmq-c1-n3.services.clever-cloud.com
+
+ go install gitlab.clever-cloud.com/dns-kafka/dns-kafka.go && ../bin/dns-kafka
