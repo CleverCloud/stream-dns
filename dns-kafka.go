@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	s "strings"
 	"syscall"
 
 	"github.com/boltdb/bolt"
@@ -40,7 +41,12 @@ func launchReader(db *bolt.DB) {
 		if errm != nil {
 			break
 		}
-		log.Printf("message at topic/partition/offset %v/%v/%v: %s = %s\n", m.Topic, m.Partition, m.Offset, string(m.Key), string(m.Value))
+		log.Printf("%s\n", string(m.Key))
+
+		if s.Index(string(m.Key), "*") != -1 {
+			log.Printf("message at topic/partition/offset %v/%v/%v: %s = %s\n", m.Topic, m.Partition, m.Offset, string(m.Key), string(m.Value))
+			log.Printf("💄💄💄💄💄💄💄💄💄💄💄💄💄")
+		}
 		db.Update(func(tx *bolt.Tx) error {
 			b, err := tx.CreateBucketIfNotExists([]byte("records"))
 			if err != nil {
@@ -166,9 +172,19 @@ func serve(db *bolt.DB) {
 		db.View(func(tx *bolt.Tx) error {
 			// Assume bucket exists and has keys
 			c := tx.Bucket([]byte("records")).Cursor()
+			/*
+				prefix := []byte(r.Question[0].Name)
+				for k, v := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, v = c.Next() {
+					var r []Record
+					json.Unmarshal([]byte(v), &r)
+					log.Printf("records: %+v", r)
 
-			prefix := []byte(r.Question[0].Name)
-			for k, v := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, v = c.Next() {
+				}
+			*/
+			log.Printf("records: %s", fmt.Sprintf("*%s", r.Question[0].Name[s.Index(r.Question[0].Name, "."):len(r.Question[0].Name)-1]))
+
+			prefixstar := []byte(fmt.Sprintf("*%s", r.Question[0].Name[s.Index(r.Question[0].Name, "."):len(r.Question[0].Name)-1]))
+			for k, v := c.Seek(prefixstar); k != nil && bytes.HasPrefix(k, prefixstar); k, v = c.Next() {
 				var r []Record
 				json.Unmarshal([]byte(v), &r)
 				log.Printf("records: %+v", r)
@@ -203,7 +219,8 @@ func main() {
 		log.Fatal(err)
 	}
 
-	//go launchReader(db)
+	//
+	go launchReader(db)
 
 	go serve(db)
 
