@@ -12,9 +12,9 @@ import (
 	"syscall"
 
 	"github.com/boltdb/bolt"
-	"github.com/segmentio/kafka-go"
-
 	"github.com/miekg/dns"
+	"github.com/segmentio/kafka-go"
+	"github.com/spf13/viper"
 )
 
 type Record struct {
@@ -25,12 +25,12 @@ type Record struct {
 	Priority int
 }
 
-func launchReader(db *bolt.DB) {
+func launchReader(db *bolt.DB, config KafkaConfig) {
 	log.Print("Read from kafka topic")
 
 	r := kafka.NewReader(kafka.ReaderConfig{
-		Brokers:   []string{"localhost:9092"},
-		Topic:     "compressed-domains",
+		Brokers:   config.Address,
+		Topic:     config.Topic,
 		Partition: 0,
 		MinBytes:  10e3, // 10KB
 		MaxBytes:  10e6, // 10MB
@@ -45,7 +45,6 @@ func launchReader(db *bolt.DB) {
 
 		if s.Index(string(m.Key), "*") != -1 {
 			log.Printf("message at topic/partition/offset %v/%v/%v: %s = %s\n", m.Topic, m.Partition, m.Offset, string(m.Key), string(m.Value))
-			log.Printf("💄💄💄💄💄💄💄💄💄💄💄💄💄")
 		}
 		db.Update(func(tx *bolt.Tx) error {
 			b, err := tx.CreateBucketIfNotExists([]byte("records"))
@@ -151,7 +150,7 @@ func handleReflect(w dns.ResponseWriter, r *dns.Msg) {
 
 func A(rr string) *dns.A { r, _ := dns.NewRR(rr); return r.(*dns.A) }
 
-func serve(db *bolt.DB) {
+func serve(db *bolt.DB, config DnsConfig) {
 
 	dns.HandleFunc(".", func(w dns.ResponseWriter, r *dns.Msg) {
 
@@ -198,20 +197,47 @@ func serve(db *bolt.DB) {
 		w.WriteMsg(m)
 	})
 
-	serverudp := &dns.Server{Addr: ":8053", Net: "udp", TsigSecret: nil}
-	if err := serverudp.ListenAndServe(); err != nil {
-		fmt.Printf("Failed to setup the udp server: %s\n", err.Error())
-
+	if config.Udp {
+		serverudp := &dns.Server{Addr: config.Address, Net: "udp", TsigSecret: nil}
+		if err := serverudp.ListenAndServe(); err != nil {
+			fmt.Printf("Failed to setup the udp server: %s\n", err.Error())
+		}
 	}
 
-	servertcp := &dns.Server{Addr: ":8053", Net: "tcp", TsigSecret: nil}
-	if err := servertcp.ListenAndServe(); err != nil {
-		fmt.Printf("Failed to setup the tcp server: %s\n", err.Error())
-
+	if config.Tcp {
+		servertcp := &dns.Server{Addr: config.Address, Net: "tcp", TsigSecret: nil}
+		if err := servertcp.ListenAndServe(); err != nil {
+			fmt.Printf("Failed to setup the tcp server: %s\n", err.Error())
+		}
 	}
 }
 
 func main() {
+	// Get configuration
+	viper.SetConfigName("config")
+	viper.AddConfigPath(".")
+	viper.AddConfigPath("/etc/dns-kafka/")
+
+	// Default values target a dev mode configuration
+	viper.SetDefault("kafka.address", "localhost:9092")
+	viper.SetDefault("kafka.topic", "compressed-domains")
+
+	viper.SetDefault("dns.address", ":8053")
+	viper.SetDefault("dns.udp", true)
+	viper.SetDefault("dns.tcp", true)
+
+	var config Config
+
+	if err := viper.ReadInConfig(); err != nil {
+		log.Fatalf("Error reading config file, %s", err)
+	}
+
+	err := viper.Unmarshal(&config)
+	if err != nil {
+		log.Fatalf("unable to decode into struct, %v", err)
+	}
+
+	// Setup os signal to stop this service
 	sig := make(chan os.Signal)
 
 	db, err := bolt.Open("/tmp/my.db", 0600, nil)
@@ -219,10 +245,9 @@ func main() {
 		log.Fatal(err)
 	}
 
-	//
-	go launchReader(db)
-
-	go serve(db)
+	// Run goroutines service
+	go launchReader(db, config.Kafka)
+	go serve(db, config.Dns)
 
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	s := <-sig
