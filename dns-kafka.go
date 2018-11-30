@@ -11,10 +11,10 @@ import (
 	s "strings"
 	"syscall"
 
-	"github.com/boltdb/bolt"
 	"github.com/miekg/dns"
 	"github.com/segmentio/kafka-go"
 	"github.com/spf13/viper"
+	bolt "go.etcd.io/bbolt"
 )
 
 type Record struct {
