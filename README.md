@@ -30,8 +30,6 @@ The configuration file can be set in your current directory or in `/etc/kafka-dn
 
 ```bash
 dig @localhost -p 8053 zenaton-rabbitmq-c1-n3.services.clever-cloud.com
-dig @localhost -p 8053dig @localhost -p 8053 zenaton-rabbitmq-c1-n3.services.clever-cloud.com
-dig @localhost -p 8053 zenaton-rabbitmq-c1-n3.services.clever-cloud.com	   
 ```
 
 ## Test
