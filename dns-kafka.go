@@ -11,7 +11,7 @@ import (
 	s "strings"
 	"syscall"
 
-	"github.com/miekg/dns"
+	dns "github.com/miekg/dns"
 	"github.com/segmentio/kafka-go"
 	"github.com/spf13/viper"
 	bolt "go.etcd.io/bbolt"
@@ -150,49 +150,141 @@ func handleReflect(w dns.ResponseWriter, r *dns.Msg) {
 
 func A(rr string) *dns.A { r, _ := dns.NewRR(rr); return r.(*dns.A) }
 
+func AAAA(rr string) *dns.AAAA { r, _ := dns.NewRR(rr); return r.(*dns.AAAA) }
+
+func CNAME(rr string) *dns.CNAME { r, _ := dns.NewRR(rr); return r.(*dns.CNAME) }
+
+func isCname(qtype uint16) bool { return qtype == dns.TypeCNAME }
+
+func recordToA(record Record) *dns.A {
+	var Astr string
+
+	if record.Priority > 0 {
+		Astr = fmt.Sprintf("%s %d IN A %d %s", record.Name, record.Ttl, record.Priority, record.Content)
+	} else {
+		Astr = fmt.Sprintf("%s %d IN A %s", record.Name, record.Ttl, record.Content)
+	}
+
+	return A(Astr)
+}
+
+func recordToAAAA(record Record) *dns.AAAA {
+	var AAAAstr string
+	if record.Priority > 0 {
+		AAAAstr = fmt.Sprintf("%s %d IN AAAA %d %s", record.Name, record.Ttl, record.Priority, record.Content)
+	} else {
+		AAAAstr = fmt.Sprintf("%s %d IN AAAA %s", record.Name, record.Ttl, record.Content)
+	}
+	return AAAA(AAAAstr)
+}
+
+func recordToCNAME(record Record) *dns.CNAME {
+	var cnameStr string
+	if record.Priority > 0 {
+		cnameStr = fmt.Sprintf("%s %d IN CNAME %d %s", record.Name, record.Ttl, record.Priority, record.Content)
+	} else {
+		cnameStr = fmt.Sprintf("%s %d IN CNAME %s", record.Name, record.Ttl, record.Content)
+	}
+	return CNAME(cnameStr)
+}
+
+//TODO: add the support for other types
+func recordToAnswer(record Record) dns.RR {
+	var rr dns.RR
+	// Pray for pattern matchin in Go 2 considered harmful
+	if record.Type == dns.TypeToString[dns.TypeA] {
+		rr = recordToA(record)
+	}
+
+	if record.Type == dns.TypeToString[dns.TypeAAAA] {
+		rr = recordToAAAA(record)
+	}
+
+	if record.Type == dns.TypeToString[dns.TypeCNAME] {
+		rr = recordToCNAME(record)
+	}
+
+	return rr
+}
+
+func getRecordsFromBucket(bucket *bolt.Bucket, qname string, qtype string) ([]Record, error) {
+	var records []Record
+
+	v := bucket.Get([]byte(fmt.Sprintf("%s|%s", qname, qtype)))
+
+	if v != nil {
+		err := json.Unmarshal([]byte(v), &records)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return records, nil
+}
+
+//TODO
+func getRecordsFromBucketWithSuffix(bucket *bolt.Bucket, qname string, qtype string) ([]Record, error) {
+	// create the cursor
+	// Create the suffix *.<suffixname>.
+	// Seek in the bucket
+	// unmarshall to JSON
+}
+
 func serve(db *bolt.DB, config DnsConfig) {
-
 	dns.HandleFunc(".", func(w dns.ResponseWriter, r *dns.Msg) {
+		log.Printf("Got a request for %s", r.Question[0].Name)
 
-		log.Printf(r.Question[0].Name)
-		/*
-			t := &dns.TXT{
-				Hdr: dns.RR_Header{Name: "clever-example.com", Rrtype: dns.TypeTXT, Class: dns.ClassINET, Ttl: 0},
-				Txt: []string{"CATCH PLOP"},
-			}
-		*/
+		qname := r.Question[0].Name
+		qtype := r.Question[0].Qtype
+		qtypeStr := dns.TypeToString[qtype]
+		isCnameQuestion := isCname(qtype)
+
 		m := new(dns.Msg)
 		m.SetReply(r)
-		/*
-			//m.Authoritative = true
-			//m.Ns = []dns.RR{NewRR("$ORIGIN plopitude.forta.\n")}
-			m.Extra = append(m.Extra, t)*/
+
+		var recordsAnswer []Record
 
 		db.View(func(tx *bolt.Tx) error {
-			// Assume bucket exists and has keys
-			c := tx.Bucket([]byte("records")).Cursor()
-			/*
-				prefix := []byte(r.Question[0].Name)
-				for k, v := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, v = c.Next() {
-					var r []Record
-					json.Unmarshal([]byte(v), &r)
-					log.Printf("records: %+v", r)
+			// TODO: check if the bucket already exists and has keys
+			var v []byte
+			recordsBucket := tx.Bucket([]byte("records"))
 
+			if !isCnameQuestion {
+				recordsAnswer, _ = getRecordsFromBucket(recordsBucket, qname, qtypeStr)
+				if v != nil {
+					return nil
 				}
-			*/
-			log.Printf("records: %s", fmt.Sprintf("*%s", r.Question[0].Name[s.Index(r.Question[0].Name, "."):len(r.Question[0].Name)-1]))
+			}
 
-			prefixstar := []byte(fmt.Sprintf("*%s", r.Question[0].Name[s.Index(r.Question[0].Name, "."):len(r.Question[0].Name)-1]))
-			for k, v := c.Seek(prefixstar); k != nil && bytes.HasPrefix(k, prefixstar); k, v = c.Next() {
-				var r []Record
-				json.Unmarshal([]byte(v), &r)
-				log.Printf("records: %+v", r)
+			recordsAnswer, _ = getRecordsFromBucket(recordsBucket, qname, "CNAME")
+			if v != nil {
+				return nil
+			}
 
+			if !isCnameQuestion {
+				cursor := recordsBucket.Cursor()
+				suffixName := []byte(fmt.Sprintf("*%s|%s", qname[s.Index(qname, "."):len(qname)-1], qtypeStr))
+
+				for k, v := cursor.Seek(suffixName); k != nil && bytes.HasPrefix(k, suffixName); k, v = cursor.Next() {
+					//FIXME
+					json.Unmarshal([]byte(v), &recordsAnswer)
+				}
+				return nil
+			}
+
+			// search for a CNAME suffix
+			cursor := recordsBucket.Cursor()
+			suffixName := []byte(fmt.Sprintf("*%s|CNAME", qname[s.Index(qname, "."):len(qname)-1]))
+
+			for k, v := cursor.Seek(suffixName); k != nil && bytes.HasPrefix(k, suffixName); k, v = cursor.Next() {
+				// FIXME
+				json.Unmarshal([]byte(v), &recordsAnswer)
 			}
 
 			return nil
 		})
-		m.Answer = append(m.Answer, A("zenaton-rabbitmq-c1-n3.services.clever-cloud.com. IN A 127.0.0.1"))
+
+		m.Answer = append(m.Answer, recordToAnswer(recordsAnswer[0]))
 
 		w.WriteMsg(m)
 	})
