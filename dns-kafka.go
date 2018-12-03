@@ -154,8 +154,6 @@ func AAAA(rr string) *dns.AAAA { r, _ := dns.NewRR(rr); return r.(*dns.AAAA) }
 
 func CNAME(rr string) *dns.CNAME { r, _ := dns.NewRR(rr); return r.(*dns.CNAME) }
 
-func isCname(qtype uint16) bool { return qtype == dns.TypeCNAME }
-
 func recordToA(record Record) *dns.A {
 	var Astr string
 
@@ -207,27 +205,47 @@ func recordToAnswer(record Record) dns.RR {
 	return rr
 }
 
-func getRecordsFromBucket(bucket *bolt.Bucket, qname string, qtype string) ([]Record, error) {
-	var records []Record
+func recordsToAnswer(records []Record) []dns.RR {
+	var rrs []dns.RR
 
-	v := bucket.Get([]byte(fmt.Sprintf("%s|%s", qname, qtype)))
+	for _, record := range records {
+		rrs = append(rrs, recordToAnswer(record))
+	}
 
-	if v != nil {
-		err := json.Unmarshal([]byte(v), &records)
+	return rrs
+}
+
+func getRecordsFromBucket(bucket *bolt.Bucket, qname string) ([][]Record, error) {
+	var records [][]Record = [][]Record{}
+	c := bucket.Cursor()
+
+	prefix := []byte(qname)
+	for k, v := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, v = c.Next() {
+		var record []Record
+		err := json.Unmarshal([]byte(v), &record)
+
 		if err != nil {
 			return nil, err
+		} else {
+			records = append(records, record)
+		}
+	}
+
+	c.First()
+
+	prefixstar := []byte(fmt.Sprintf("*%s", qname[s.Index(qname, "."):len(qname)-1]))
+	for k, v := c.Seek(prefixstar); k != nil && bytes.HasPrefix(k, prefixstar); k, v = c.Next() {
+		var record []Record
+		err := json.Unmarshal([]byte(v), &record)
+
+		if err != nil {
+			return nil, err
+		} else {
+			records = append(records, record)
 		}
 	}
 
 	return records, nil
-}
-
-//TODO
-func getRecordsFromBucketWithSuffix(bucket *bolt.Bucket, qname string, qtype string) ([]Record, error) {
-	// create the cursor
-	// Create the suffix *.<suffixname>.
-	// Seek in the bucket
-	// unmarshall to JSON
 }
 
 func serve(db *bolt.DB, config DnsConfig) {
@@ -235,56 +253,29 @@ func serve(db *bolt.DB, config DnsConfig) {
 		log.Printf("Got a request for %s", r.Question[0].Name)
 
 		qname := r.Question[0].Name
-		qtype := r.Question[0].Qtype
-		qtypeStr := dns.TypeToString[qtype]
-		isCnameQuestion := isCname(qtype)
 
 		m := new(dns.Msg)
 		m.SetReply(r)
 
-		var recordsAnswer []Record
-
 		db.View(func(tx *bolt.Tx) error {
 			// TODO: check if the bucket already exists and has keys
-			var v []byte
 			recordsBucket := tx.Bucket([]byte("records"))
 
-			if !isCnameQuestion {
-				recordsAnswer, _ = getRecordsFromBucket(recordsBucket, qname, qtypeStr)
-				if v != nil {
-					return nil
+			records, err := getRecordsFromBucket(recordsBucket, qname)
+
+			if err != nil {
+				log.Fatal(err)
+				return nil
+			} else {
+				for _, subRecords := range records {
+					tmp := recordsToAnswer(subRecords)
+					for _, record := range tmp {
+						m.Answer = append(m.Answer, record)
+					}
 				}
 			}
-
-			recordsAnswer, _ = getRecordsFromBucket(recordsBucket, qname, "CNAME")
-			if v != nil {
-				return nil
-			}
-
-			if !isCnameQuestion {
-				cursor := recordsBucket.Cursor()
-				suffixName := []byte(fmt.Sprintf("*%s|%s", qname[s.Index(qname, "."):len(qname)-1], qtypeStr))
-
-				for k, v := cursor.Seek(suffixName); k != nil && bytes.HasPrefix(k, suffixName); k, v = cursor.Next() {
-					//FIXME
-					json.Unmarshal([]byte(v), &recordsAnswer)
-				}
-				return nil
-			}
-
-			// search for a CNAME suffix
-			cursor := recordsBucket.Cursor()
-			suffixName := []byte(fmt.Sprintf("*%s|CNAME", qname[s.Index(qname, "."):len(qname)-1]))
-
-			for k, v := cursor.Seek(suffixName); k != nil && bytes.HasPrefix(k, suffixName); k, v = cursor.Next() {
-				// FIXME
-				json.Unmarshal([]byte(v), &recordsAnswer)
-			}
-
 			return nil
 		})
-
-		m.Answer = append(m.Answer, recordToAnswer(recordsAnswer[0]))
 
 		w.WriteMsg(m)
 	})
