@@ -4,7 +4,7 @@ A DNS server, written in Go.
 
 ## Build
 
-`go install gitlab.clever-cloud.com/dns-kafka`
+`go install gitlab.clever-cloud.com/kafka-dns`
 
 ## Run
 
@@ -30,11 +30,12 @@ The configuration file can be set in your current directory or in `/etc/kafka-dn
 
 ```bash
 dig @localhost -p 8053 zenaton-rabbitmq-c1-n3.services.clever-cloud.com
+dig @localhost -p 8053 yds.cleverapps.io
 ```
 
 ## Test
 
-TODO
+Run the command `go test kafka-dns`
 
 ## Resources
 
