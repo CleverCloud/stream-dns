@@ -231,17 +231,19 @@ func getRecordsFromBucket(bucket *bolt.Bucket, qname string) ([][]Record, error)
 		}
 	}
 
-	c.First()
+	if qname[0] != '*' {
+		c.First()
 
-	prefixstar := []byte(fmt.Sprintf("*%s", qname[s.Index(qname, "."):len(qname)-1]))
-	for k, v := c.Seek(prefixstar); k != nil && bytes.HasPrefix(k, prefixstar); k, v = c.Next() {
-		var record []Record
-		err := json.Unmarshal([]byte(v), &record)
+		prefixstar := []byte(fmt.Sprintf("*%s", qname[s.Index(qname, "."):len(qname)-1]))
+		for k, v := c.Seek(prefixstar); k != nil && bytes.HasPrefix(k, prefixstar); k, v = c.Next() {
+			var record []Record
 
-		if err != nil {
-			return nil, err
-		} else {
-			records = append(records, record)
+			err := json.Unmarshal([]byte(v), &record)
+			if err != nil {
+				return nil, err
+			} else {
+				records = append(records, record)
+			}
 		}
 	}
 
