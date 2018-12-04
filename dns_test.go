@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	dns "github.com/miekg/dns"
 	"github.com/stretchr/testify/suite"
 	bolt "go.etcd.io/bbolt"
 	"math/rand"
@@ -195,8 +196,22 @@ func (suite *DnsTestSuite) TestShouldFindARecordWithWildcardPrefix() {
 	})
 }
 
-func (suite *DnsTestSuite) TestShouldTransformTheQnameIntoWildcardQname() {
-	suite.Equal("*.cleverapps.io", intoWildcardQName("yolo.cleverapps.io."))
+func (suite *DnsTestSuite) TestShouldFilterRecordByQtypeOrCname() {
+	var records = []Record{
+		Record{"a.com", "A", "163.172.235.159", 3600, 0},
+		Record{"txt.com", "TXT", "163.172.235.159", 3600, 0},
+		Record{"aaaa.com", "AAAA", "163.172.235.159", 3600, 0},
+		Record{"cname.com", "CNAME", "163.172.235.159", 3600, 0},
+	}
+
+	recordsFiltered := filterByQtypeAndCname(records, dns.TypeA)
+	suite.Equal(2, len(recordsFiltered))
+	suite.Equal("A", recordsFiltered[0].Type)
+	suite.Equal("CNAME", recordsFiltered[1].Type)
+
+	cnameRecords := filterByQtypeAndCname(records, dns.TypeCNAME)
+	suite.Equal(1, len(cnameRecords))
+	suite.Equal("CNAME", cnameRecords[0].Type)
 }
 
 func TestDnsTestSuite(t *testing.T) {

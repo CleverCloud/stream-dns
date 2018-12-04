@@ -259,11 +259,30 @@ func getRecordsFromBucket(bucket *bolt.Bucket, qname string) ([][]Record, error)
 	return records, nil
 }
 
+func isSameQtypeOrItsCname(qtypeQuestion uint16, qtypeRecord uint16) bool {
+	return qtypeRecord == qtypeQuestion || qtypeRecord == dns.TypeCNAME
+}
+
+func filterByQtypeAndCname(records []Record, qtype uint16) []Record {
+	var filteredRecords []Record
+
+	for _, record := range records {
+		rrTypeRecord := dns.StringToType[record.Type]
+
+		if isSameQtypeOrItsCname(qtype, rrTypeRecord) {
+			filteredRecords = append(filteredRecords, record)
+		}
+	}
+
+	return filteredRecords
+}
+
 func serve(db *bolt.DB, config DnsConfig) {
 	dns.HandleFunc(".", func(w dns.ResponseWriter, r *dns.Msg) {
 		log.Printf("Got a request for %s", r.Question[0].Name)
 
 		qname := r.Question[0].Name
+		qtype := r.Question[0].Qtype
 
 		m := new(dns.Msg)
 		m.SetReply(r)
@@ -279,9 +298,13 @@ func serve(db *bolt.DB, config DnsConfig) {
 				return nil
 			} else {
 				for _, subRecords := range records {
-					tmp := recordsToAnswer(subRecords)
+					filteredSubRecords := filterByQtypeAndCname(subRecords, qtype)
+					tmp := recordsToAnswer(filteredSubRecords)
+
 					for _, record := range tmp {
-						m.Answer = append(m.Answer, record)
+						if isSameQtypeOrItsCname(qtype, record.Header().Rrtype) {
+							m.Answer = append(m.Answer, record)
+						}
 					}
 				}
 			}
