@@ -118,6 +118,45 @@ func (suite *DnsTestSuite) TestShouldNotFindARecordWhenItDoesntExist() {
 	})
 }
 
+func (suite *DnsTestSuite) TestShouldReturnOnlyTheRecordWithoutTheWildcardWhenThePlainRecordExist() {
+	bucketName := "records"
+
+	key := []byte("yds.yolo.io.|A")
+	value := []byte(`[{"name":"yds.yolo.io","type":"A","content":"123.172.154.22","ttl":3600,"priority":0}]`)
+
+	key_wildcard := []byte("*.yolo.io.|A")
+	value_wildcard := []byte(`[{"name":"*.yolo.io","type":"A","content":"163.172.235.156","ttl":3600,"priority":0},{"name":"*.yolo.io","type":"A","content":"163.172.235.159","ttl":3600,"priority":0}]`)
+
+	suite.DB.Update(func(tx *bolt.Tx) error {
+		b, err := tx.CreateBucketIfNotExists([]byte(bucketName))
+
+		if err != nil {
+			suite.Fail("Can't seed the database")
+		}
+
+		b.Put(key, value)
+		b.Put(key_wildcard, value_wildcard)
+		return nil
+	})
+
+	suite.DB.View(func(tx *bolt.Tx) error {
+		recordsBucket := tx.Bucket([]byte(bucketName))
+		records, err := getRecordsFromBucket(recordsBucket, "yds.yolo.io")
+
+		if err != nil {
+			suite.Fail("Can't get records from bucket: %s", err)
+		}
+
+		// We should not retrieve the wildcard records
+		suite.Equal(1, len(records))
+		suite.Equal(1, len(records[0]))
+
+		suite.Equal("yds.yolo.io", records[0][0].Name, "not the same name")
+		suite.Equal("A", records[0][0].Type, "not the same type")
+		suite.Equal("123.172.154.22", records[0][0].Content, "not the same content")
+		return nil
+	})
+}
 
 func (suite *DnsTestSuite) TestShouldFindARecordWithWildcardPrefix() {
 	bucketName := "records"
@@ -154,6 +193,10 @@ func (suite *DnsTestSuite) TestShouldFindARecordWithWildcardPrefix() {
 
 		return nil
 	})
+}
+
+func (suite *DnsTestSuite) TestShouldTransformTheQnameIntoWildcardQname() {
+	suite.Equal("*.cleverapps.io", intoWildcardQName("yolo.cleverapps.io."))
 }
 
 func TestDnsTestSuite(t *testing.T) {

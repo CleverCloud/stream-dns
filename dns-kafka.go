@@ -215,6 +215,14 @@ func recordsToAnswer(records []Record) []dns.RR {
 	return rrs
 }
 
+func intoWildcardQName(qname string) string {
+	return fmt.Sprintf("*%s", qname[s.Index(qname, "."):len(qname)-1])
+}
+
+func isNotWildcardName(qname string) bool {
+	return qname[0] != '*'
+}
+
 func getRecordsFromBucket(bucket *bolt.Bucket, qname string) ([][]Record, error) {
 	var records [][]Record = [][]Record{}
 	c := bucket.Cursor()
@@ -231,11 +239,12 @@ func getRecordsFromBucket(bucket *bolt.Bucket, qname string) ([][]Record, error)
 		}
 	}
 
-	if qname[0] != '*' {
+	if isNotWildcardName(qname) && len(records) == 0 {
+		log.Printf("here %d", len(records))
 		c.First()
 
-		prefixstar := []byte(fmt.Sprintf("*%s", qname[s.Index(qname, "."):len(qname)-1]))
-		for k, v := c.Seek(prefixstar); k != nil && bytes.HasPrefix(k, prefixstar); k, v = c.Next() {
+		prefixWildcard := []byte(intoWildcardQName(qname))
+		for k, v := c.Seek(prefixWildcard); k != nil && bytes.HasPrefix(k, prefixWildcard); k, v = c.Next() {
 			var record []Record
 
 			err := json.Unmarshal([]byte(v), &record)
