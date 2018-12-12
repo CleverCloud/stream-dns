@@ -16,6 +16,14 @@ A DNS server, written in Go.
 - (optional) Fill the config file
 - Run the binary with the command: `PG_CON=<connection URI> kafka-dns`
 
+#### utility
+
+Client DNS lookup which support multiple questions:
+
+build: `go install kafka-dns/tools/client`
+usage: `client [[qname], [qtype]]...`
+exec: `client yolo.com A foo.bar AAAA` (qtype should be in upper case).
+
 ### Prod mode
 
 TODO
