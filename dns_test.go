@@ -44,7 +44,7 @@ func (suite *DnsTestSuite) TestShouldNotFindRecordsWhenBucketIsEmpty() {
 
 	suite.DB.View(func(tx *bolt.Tx) error {
 		recordsBucket := tx.Bucket([]byte(bucketName))
-		records, err := getRecordsFromBucket(recordsBucket, "zenaton-rabbitmq-c1-n3.services.clever-cloud.com.")
+		records, err := getRecordsFromBucket(recordsBucket, "yolo.com.")
 
 		if err != nil {
 			suite.Fail("Can't get records from bucket: %s", err)
@@ -58,8 +58,8 @@ func (suite *DnsTestSuite) TestShouldNotFindRecordsWhenBucketIsEmpty() {
 
 func (suite *DnsTestSuite) TestShouldFindARecord() {
 	bucketName := "records"
-	key := []byte("zenaton-rabbitmq-c1-n3.services.clever-cloud.com.|A")
-	value := []byte(`[{"name":"zenaton-rabbitmq-c1-n3.services.clever-cloud.com","type":"A","content":"163.172.233.56","ttl":3600,"priority":0}]`)
+	key := []byte("foo.bar.services.com.|A")
+	value := []byte(`[{"name":"foo.bar.services.com","type":"A","content":"163.172.233.56","ttl":3600,"priority":0}]`)
 
 	suite.DB.Update(func(tx *bolt.Tx) error {
 		b, err := tx.CreateBucketIfNotExists([]byte(bucketName))
@@ -74,7 +74,7 @@ func (suite *DnsTestSuite) TestShouldFindARecord() {
 
 	suite.DB.View(func(tx *bolt.Tx) error {
 		recordsBucket := tx.Bucket([]byte(bucketName))
-		records, err := getRecordsFromBucket(recordsBucket, "zenaton-rabbitmq-c1-n3.services.clever-cloud.com.")
+		records, err := getRecordsFromBucket(recordsBucket, "foo.bar.services.com")
 
 		if err != nil {
 			suite.Fail("Can't get records from bucket: %s", err)
@@ -82,7 +82,7 @@ func (suite *DnsTestSuite) TestShouldFindARecord() {
 
 		suite.Equal(1, len(records))
 
-		suite.Equal("zenaton-rabbitmq-c1-n3.services.clever-cloud.com", records[0][0].Name, "not the same name")
+		suite.Equal("foo.bar.services.com", records[0][0].Name, "not the same name")
 		suite.Equal("A", records[0][0].Type, "not the same type")
 
 		return nil
@@ -91,8 +91,8 @@ func (suite *DnsTestSuite) TestShouldFindARecord() {
 
 func (suite *DnsTestSuite) TestShouldNotFindARecordWhenItDoesntExist() {
 	bucketName := "records"
-	key := []byte("zenaton-rabbitmq-c1-n3.services.clever-cloud.com.|A")
-	value := []byte(`[{"name":"zenaton-rabbitmq-c1-n3.services.clever-cloud.com","type":"A","content":"163.172.233.56","ttl":3600,"priority":0}]`)
+	key := []byte("foo.bar.services.com.|A")
+	value := []byte(`[{"name":"foo.bar.services.com","type":"A","content":"163.172.233.56","ttl":3600,"priority":0}]`)
 
 	suite.DB.Update(func(tx *bolt.Tx) error {
 		b, err := tx.CreateBucketIfNotExists([]byte(bucketName))
@@ -107,7 +107,7 @@ func (suite *DnsTestSuite) TestShouldNotFindARecordWhenItDoesntExist() {
 
 	suite.DB.View(func(tx *bolt.Tx) error {
 		recordsBucket := tx.Bucket([]byte(bucketName))
-		records, err := getRecordsFromBucket(recordsBucket, "wlpm3ahirq-jenkins.services.clever-cloud.com.")
+		records, err := getRecordsFromBucket(recordsBucket, "unknow.services.com.")
 
 		if err != nil {
 			suite.Fail("Can't get records from bucket: %s", err)
@@ -161,8 +161,8 @@ func (suite *DnsTestSuite) TestShouldReturnOnlyTheRecordWithoutTheWildcardWhenTh
 
 func (suite *DnsTestSuite) TestShouldFindARecordWithWildcardPrefix() {
 	bucketName := "records"
-	key := []byte("*.cleverapps.io.|A")
-	value := []byte(`[{"name":"*.cleverapps.io","type":"A","content":"163.172.235.156","ttl":3600,"priority":0},{"name":"*.cleverapps.io","type":"A","content":"163.172.235.159","ttl":3600,"priority":0}]`)
+	key := []byte("*.apps.io.|A")
+	value := []byte(`[{"name":"*.apps.io","type":"A","content":"163.172.235.156","ttl":3600,"priority":0},{"name":"*.apps.io","type":"A","content":"163.172.235.159","ttl":3600,"priority":0}]`)
 
 	suite.DB.Update(func(tx *bolt.Tx) error {
 		b, err := tx.CreateBucketIfNotExists([]byte(bucketName))
@@ -177,7 +177,7 @@ func (suite *DnsTestSuite) TestShouldFindARecordWithWildcardPrefix() {
 
 	suite.DB.View(func(tx *bolt.Tx) error {
 		recordsBucket := tx.Bucket([]byte(bucketName))
-		records, err := getRecordsFromBucket(recordsBucket, "*.cleverapps.io.")
+		records, err := getRecordsFromBucket(recordsBucket, "*.apps.io.")
 
 		if err != nil {
 			suite.Fail("Can't get records from bucket: %s", err)
@@ -186,10 +186,10 @@ func (suite *DnsTestSuite) TestShouldFindARecordWithWildcardPrefix() {
 		suite.Equal(1, len(records))
 		suite.Equal(2, len(records[0]))
 
-		suite.Equal("*.cleverapps.io", records[0][0].Name, "not the same name")
+		suite.Equal("*.apps.io", records[0][0].Name, "not the same name")
 		suite.Equal("163.172.235.156", records[0][0].Content)
 
-		suite.Equal("*.cleverapps.io", records[0][1].Name, "not the same type")
+		suite.Equal("*.apps.io", records[0][1].Name, "not the same type")
 		suite.Equal("163.172.235.159", records[0][1].Content)
 
 		return nil
