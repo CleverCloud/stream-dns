@@ -155,7 +155,6 @@ func getRecordsFromBucket(bucket *bolt.Bucket, qname string) ([][]Record, error)
 	}
 
 	if isNotWildcardName(qname) && len(records) == 0 {
-		log.Printf("here %d", len(records))
 		c.First()
 
 		prefixWildcard := []byte(intoWildcardQName(qname))
