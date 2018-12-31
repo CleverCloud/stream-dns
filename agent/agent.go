@@ -53,12 +53,13 @@ func (a *Agent) Run() error {
 		return err
 	}
 
-	buf := make([]metrics.Metric, a.Config.BufferSize)
+	var buf []metrics.Metric
 
 	for {
 		select {
 		case ret := <-a.Input:
 			buf = append(buf, ret)
+
 			if len(buf) == a.Config.BufferSize {
 				a.flushMetricsToOutput(buf)
 				buf = buf[:0] // Clear just the slice and keep his capacity
