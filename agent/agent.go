@@ -1,12 +1,12 @@
 /*
 The Agent metric is an active object who acts as multiplexer for all "input metrics" and
-a demultiplexer for all Output. The metrics are gathers in a buffer and sent in batch mode. 
+a demultiplexer for all outputs. The metrics are gathers in a buffer and sent in batch mode.
 The agent flush an incomplete buffer if he has a timeout.
 
 ```
 P            Output
   \         /
-P -> Agent > -- Output 
+P -> Agent > -- Output
   /         \
 P            Output
 ```
@@ -103,7 +103,8 @@ func (a *Agent) flushMetricsToOutput(metricsBuffer []metrics.Metric) {
 // Send the batch of metrics to all registered Output
 func (a *Agent) sendMetricsToOutput(metrics []metrics.Metric) {
 	for _, output := range a.outputs {
-		// We run this in a goroutine to reduce the time due to IO
+		// We run this in a goroutine to reduce the latency due to IO
+		log.Printf("forwarding metrics to %s", output.Name())
 		go output.Write(metrics)
 	}
 }
