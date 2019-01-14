@@ -211,17 +211,22 @@ func serve(db *bolt.DB, config DnsConfig) {
 				log.Fatal(err)
 				return nil
 			} else {
-				for _, subRecords := range records {
-					filteredSubRecords := filterByQtypeAndCname(subRecords, qtype)
-					tmp := recordsToAnswer(filteredSubRecords)
+				if len(records) > 0 {
+					for _, subRecords := range records {
+						filteredSubRecords := filterByQtypeAndCname(subRecords, qtype)
+						tmp := recordsToAnswer(filteredSubRecords)
 
-					for _, record := range tmp {
-						if isSameQtypeOrItsCname(qtype, record.Header().Rrtype) {
-							m.Answer = append(m.Answer, record)
+						for _, record := range tmp {
+							if isSameQtypeOrItsCname(qtype, record.Header().Rrtype) {
+								m.Answer = append(m.Answer, record)
+							}
 						}
 					}
+				} else {
+					m.SetRcode(r, dns.RcodeNameError) // return NXDOMAIN
 				}
 			}
+
 			return nil
 		})
 
