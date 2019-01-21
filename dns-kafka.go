@@ -177,28 +177,20 @@ func serve(db *bolt.DB, config DnsConfig) {
 }
 
 func main() {
-	// Get configuration
-	viper.SetConfigName("config")
-	viper.AddConfigPath(".")
-	viper.AddConfigPath("/etc/dns-kafka/")
+	viper.SetEnvPrefix("DNS") // Avoid collisions with others env variables
+	viper.AllowEmptyEnv(false)
+	viper.AutomaticEnv()
 
-	// Default values target a dev mode configuration
-	viper.SetDefault("kafka.address", "localhost:9092")
-	viper.SetDefault("kafka.topic", "compressed-domains")
-
-	viper.SetDefault("dns.address", ":8053")
-	viper.SetDefault("dns.udp", true)
-	viper.SetDefault("dns.tcp", true)
-
-	var config Config
-
-	if err := viper.ReadInConfig(); err != nil {
-		log.Fatalf("Error reading config file, %s", err)
-	}
-
-	err := viper.Unmarshal(&config)
-	if err != nil {
-		log.Fatalf("unable to decode into struct, %v", err)
+	config := Config{
+		KafkaConfig{
+			viper.GetStringSlice("kafka_address"),
+			viper.GetString("kafka_topic"),
+		},
+		DnsConfig{
+			viper.GetString("address"),
+			viper.GetBool("udp"),
+			viper.GetBool("tcp"),
+		},
 	}
 
 	// Setup os signal to stop this service

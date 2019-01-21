@@ -1,8 +1,0 @@
-[kafka]
-
-topic = "compressed-domains"
-
-[dns]
-address = ":8053"
-udp = true
-tcp = true
