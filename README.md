@@ -4,7 +4,7 @@ A DNS server, written in Go.
 
 ## Build
 
-`go install gitlab.clever-cloud.com/dns-kafka`
+`go install gitlab.clever-cloud.com/kafka-dns`
 
 ## Run
 
@@ -15,6 +15,14 @@ A DNS server, written in Go.
 - (optional) Set the connection URI of the powerdns follower in the PG_CON env variable (optional)
 - (optional) Fill the config file
 - Run the binary with the command: `PG_CON=<connection URI> kafka-dns`
+
+#### utility
+
+Client DNS lookup which support multiple questions:
+
+build: `go install kafka-dns/tools/client`
+usage: `client [[qname], [qtype]]...`
+exec: `client yolo.com A foo.bar AAAA` (qtype should be in upper case).
 
 ### Prod mode
 
@@ -30,11 +38,12 @@ The configuration file can be set in your current directory or in `/etc/kafka-dn
 
 ```bash
 dig @localhost -p 8053 zenaton-rabbitmq-c1-n3.services.clever-cloud.com
+dig @localhost -p 8053 yds.cleverapps.io
 ```
 
 ## Test
 
-TODO
+Run the command `go test kafka-dns`
 
 ## Resources
 
