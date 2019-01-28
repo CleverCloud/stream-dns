@@ -125,7 +125,7 @@ func registerHandlerForZone(zone string, db *bolt.DB) {
 		if qtype != dns.TypeAXFR {
 			findRecordsAndSetAsAnswersInMessage(qname, qtype, db, m, r)
 		} else {
-			findAllRecordsForTheZoneTransferAndSetAsAnswersInMessage(qname, db, m, r)
+			handlerZoneTransfer(qname, db, m, r)
 		}
 
 		m.SetRcode(r, dns.RcodeSuccess)
@@ -164,7 +164,66 @@ func findRecordsAndSetAsAnswersInMessage(qname string, qtype uint16, db *bolt.DB
 	})
 }
 
-// NOTE unimplemented
-func findAllRecordsForTheZoneTransferAndSetAsAnswersInMessage(qname string, db *bolt.DB, m *dns.Msg, r *dns.Msg) {
-	m.SetRcode(r, dns.RcodeSuccess)
+// Answer to AXFR request
+// The AXFR protocol treats the zone contents as an unordered set of RRs.
+// Except for the requirement that the transfer must begin and end with the SOA RR,
+// there is no requirement to send the RRs in any particular order or
+// grouped into response messages in any particular way.
+//
+// More info RFC5936: https://tools.ietf.org/html/rfc5936#section-2.2
+func handlerZoneTransfer(qname string, db *bolt.DB, m *dns.Msg, r *dns.Msg) {
+	log.Info("request a transfer zone for ", qname)
+	
+	var soa []Record
+	var records [][]Record
+	
+	err := db.View(func(tx *bolt.Tx) error {		
+		bucket := tx.Bucket([]byte("records"))
+		c := bucket.Cursor()
+
+		prefix := []byte(qname)
+
+		for k, v := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, v = c.Next() {
+			var record []Record
+			err := json.Unmarshal([]byte(v), &record)
+
+			if err != nil {
+				return err
+			} else {
+				if dns.StringToType[record[0].Type] == dns.TypeSOA {
+					soa = record
+				} else {
+					records = append(records, record)
+				}
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		log.Fatal(err)
+		m.SetRcode(r, dns.RcodeServerFailure)
+	}
+
+	// push SOA RR at the begin of the answer
+	if soa != nil {
+		soaAnswer := RecordsToAnswer(soa)
+		m.Answer = append(m.Answer, soaAnswer[0])
+	}
+
+	if len(records) > 0 {
+		for _, recordValues := range records {
+			for _, answer := range RecordsToAnswer(recordValues) {
+				m.Answer = append(m.Answer, answer)
+
+			}
+		}
+	}
+
+	// push SOA RR at the end of the answer
+	if soa != nil {
+		soaAnswer := RecordsToAnswer(soa)
+		m.Answer = append(m.Answer, soaAnswer[0])
+	}
 }
