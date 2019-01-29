@@ -114,22 +114,21 @@ func registerHandlerForZones(zones []string, db *bolt.DB) {
 // Register a zone e.g: foo.com with the default handler
 func registerHandlerForZone(zone string, db *bolt.DB) {
 	dns.HandleFunc(zone, func(w dns.ResponseWriter, r *dns.Msg) {
-		log.Info("Got a request for ", r.Question[0].Name)
-
 		qname := r.Question[0].Name
 		qtype := r.Question[0].Qtype
+
+		log.Info("Got a request for ", r.Question[0].Name, " with the type ", dns.TypeToString[qtype])
 
 		m := new(dns.Msg)
 		m.SetReply(r)
 
 		if qtype != dns.TypeAXFR {
 			findRecordsAndSetAsAnswersInMessage(qname, qtype, db, m, r)
+			m.SetRcode(r, dns.RcodeSuccess)
+			w.WriteMsg(m)
 		} else {
-			handlerZoneTransfer(qname, db, m, r)
+			handlerZoneTransfer(qname, db, m, r, w)
 		}
-
-		m.SetRcode(r, dns.RcodeSuccess)
-		w.WriteMsg(m)
 	})
 }
 
@@ -164,6 +163,12 @@ func findRecordsAndSetAsAnswersInMessage(qname string, qtype uint16, db *bolt.DB
 	})
 }
 
+// e.g: domai.com.|A -> domain.com.
+func extractDomainFromKey(key []byte) []byte {
+	tmp := key[:bytes.Index(key, []byte("|"))]
+	return tmp
+}
+
 // Answer to AXFR request
 // The AXFR protocol treats the zone contents as an unordered set of RRs.
 // Except for the requirement that the transfer must begin and end with the SOA RR,
@@ -171,29 +176,29 @@ func findRecordsAndSetAsAnswersInMessage(qname string, qtype uint16, db *bolt.DB
 // grouped into response messages in any particular way.
 //
 // More info RFC5936: https://tools.ietf.org/html/rfc5936#section-2.2
-func handlerZoneTransfer(qname string, db *bolt.DB, m *dns.Msg, r *dns.Msg) {
+func handlerZoneTransfer(qname string, db *bolt.DB, m *dns.Msg, r *dns.Msg, w dns.ResponseWriter) {
 	log.Info("request a transfer zone for ", qname)
-	
+
 	var soa []Record
 	var records [][]Record
-	
-	err := db.View(func(tx *bolt.Tx) error {		
+
+	err := db.View(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket([]byte("records"))
 		c := bucket.Cursor()
 
-		prefix := []byte(qname)
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			if bytes.HasSuffix(extractDomainFromKey(k), []byte(qname)) {
+				var record []Record
+				err := json.Unmarshal([]byte(v), &record)
 
-		for k, v := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, v = c.Next() {
-			var record []Record
-			err := json.Unmarshal([]byte(v), &record)
-
-			if err != nil {
-				return err
-			} else {
-				if dns.StringToType[record[0].Type] == dns.TypeSOA {
-					soa = record
+				if err != nil {
+					return err
 				} else {
-					records = append(records, record)
+					if dns.StringToType[record[0].Type] == dns.TypeSOA {
+						soa = record
+					} else {
+						records = append(records, record)
+					}
 				}
 			}
 		}
@@ -212,18 +217,37 @@ func handlerZoneTransfer(qname string, db *bolt.DB, m *dns.Msg, r *dns.Msg) {
 		m.Answer = append(m.Answer, soaAnswer[0])
 	}
 
-	if len(records) > 0 {
-		for _, recordValues := range records {
-			for _, answer := range RecordsToAnswer(recordValues) {
-				m.Answer = append(m.Answer, answer)
+	w.WriteMsg(m)
+	m.Answer = nil
 
+	recordsLen := len(records)
+
+	if recordsLen > 0 {
+		// NOTE: We have to chunk the records payload to avoid the error: message too large
+		// create a sliding window
+		begin := 0
+		end := 500 // arbitrary value found by manuel test
+
+		for end < recordsLen {
+			for _, recordValues := range records[begin : end%recordsLen] {
+				for _, answer := range RecordsToAnswer(recordValues) {
+					m.Answer = append(m.Answer, answer)
+				}
 			}
+
+			w.WriteMsg(m)
+			m.Answer = nil
+
+			begin = begin + 500
+			end = end + 500
 		}
 	}
 
 	// push SOA RR at the end of the answer
 	if soa != nil {
 		soaAnswer := RecordsToAnswer(soa)
+		m.Answer = nil
 		m.Answer = append(m.Answer, soaAnswer[0])
+		w.WriteMsg(m)
 	}
 }
