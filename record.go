@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 	dns "github.com/miekg/dns"
-	"log"
+	log "github.com/sirupsen/logrus"
 )
 
 type Record struct {
@@ -38,6 +38,17 @@ func recordToString(record Record) string {
 	}
 }
 
+// - The primary name server for the domain
+// - The responsible party for the domain
+// - A timestamp that changes whenever you update your domain.
+// - The number of seconds before the zone should be refreshed.
+// - The number of seconds before a failed refresh should be retried.
+// - The upper limit in seconds before a zone is considered no longer authoritative.
+// - The negative result TTL
+func recordSOAToString(record Record) string {
+	return fmt.Sprintf("%s %d IN SOA %s", record.Name, record.Ttl, record.Content)
+}
+
 func RecordToAnswer(record Record) dns.RR {
 	var rr dns.RR
 	rtype := dns.StringToType[record.Type]
@@ -51,7 +62,7 @@ func RecordToAnswer(record Record) dns.RR {
 	case dns.TypeCNAME:
 		rr = CNAME(recordstr)
 	case dns.TypeSOA:
-		rr = SOA(recordstr)
+		rr = SOA(recordSOAToString(record))
 	case dns.TypeMX:
 		rr = MX(recordstr)
 	case dns.TypeNS:
