@@ -1,8 +1,9 @@
 package main
 
 type Config struct {
-	Kafka KafkaConfig
-	Dns   DnsConfig
+	Kafka  KafkaConfig
+	Dns    DnsConfig
+	PathDB string
 }
 
 type KafkaConfig struct {

@@ -90,6 +90,7 @@ func main() {
 			viper.GetStringSlice("zones"),
 			viper.GetString("resolver_address"),
 		},
+		viper.GetString("pathdb"),
 	}
 
 	log.Info("zones: ", config.Dns.Zones)
@@ -97,7 +98,7 @@ func main() {
 	// Setup os signal to stop this service
 	sig := make(chan os.Signal)
 
-	db, err := bolt.Open("/tmp/my.db", 0600, nil)
+	db, err := bolt.Open(config.PathDB, 0600, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
