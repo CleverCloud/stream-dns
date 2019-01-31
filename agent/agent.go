@@ -14,11 +14,12 @@ P            Output
 package agent
 
 import (
-	"log"
 	"time"
 
 	"kafka-dns/metrics"
 	"kafka-dns/output"
+
+	log "github.com/sirupsen/logrus"
 )
 
 type Config struct {
@@ -45,7 +46,7 @@ func NewAgent(config Config) Agent {
 }
 
 func (a *Agent) Run() error {
-	log.Printf("[agent] Config: Flush Interval:%s", a.Config.FlushInterval)
+	log.Infof("[agent] Config: Flush Interval:%s", a.Config.FlushInterval)
 
 	err := a.connectOutputs()
 
@@ -83,11 +84,11 @@ func (a *Agent) connectOutputs() error {
 		err := output.Connect() //TODO We should try to reconnect at least a second time
 
 		if err != nil {
-			log.Printf("[agent] Failed to connect to output %s, "+
+			log.Fatalf("[agent] Failed to connect to output %s, "+
 				"error was '%s' \n", output.Name(), err)
 		}
 
-		log.Printf("[agent] Successfully connected to output: %s\n", output.Name())
+		log.Infof("[agent] Successfully connected to output: %s\n", output.Name())
 	}
 
 	return nil
@@ -105,7 +106,6 @@ func (a *Agent) flushMetricsToOutput(metricsBuffer []metrics.Metric) {
 func (a *Agent) sendMetricsToOutput(metrics []metrics.Metric) {
 	for _, output := range a.outputs {
 		// We run this in a goroutine to reduce the latency due to IO
-		log.Printf("forwarding metrics to %s", output.Name())
 		go output.Write(metrics)
 	}
 }

@@ -1,12 +1,13 @@
 package agent
 
 import (
-	"log"
+	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	ms "kafka-dns/metrics"
-	"testing"
+
+	log "github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 )
 
 type MockOutput struct {
