@@ -14,6 +14,12 @@ const (
 	Message
 )
 
+var TypeToString = map[ValueType]string{
+	Counter: "counter",
+	Gauge:   "gauge",
+	Message: "message",
+}
+
 type Tag struct {
 	Key   string
 	Value string
