@@ -2,11 +2,15 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/signal"
 	s "strings"
 	"syscall"
+	"time"
+
+	"kafka-dns/agent"
+	ms "kafka-dns/metrics"
+	"kafka-dns/output"
 
 	dns "github.com/miekg/dns"
 	"github.com/segmentio/kafka-go"
@@ -15,7 +19,7 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
-func launchReader(db *bolt.DB, config KafkaConfig) {
+func launchReader(db *bolt.DB, config KafkaConfig, metrics chan ms.Metric) {
 	log.Info("Read from kafka topic")
 
 	r := kafka.NewReader(kafka.ReaderConfig{
@@ -32,6 +36,7 @@ func launchReader(db *bolt.DB, config KafkaConfig) {
 			break
 		}
 		log.Debug("Got record for domain ", string(m.Key))
+		metrics <- ms.NewMetric("nb-record", nil, nil, time.Now(), ms.Counter)
 
 		if s.Index(string(m.Key), "*") != -1 {
 			log.Printf("message at topic/partition/offset %v/%v/%v: %s = %s\n", m.Topic, m.Partition, m.Offset, string(m.Key), string(m.Value))
@@ -56,9 +61,9 @@ func launchReader(db *bolt.DB, config KafkaConfig) {
 
 }
 
-func serve(db *bolt.DB, config DnsConfig) {
-	registerHandlerForResolver(".", db, config.ResolverAddress)
-	registerHandlerForZones(config.Zones, db)
+func serve(db *bolt.DB, config DnsConfig, metrics chan ms.Metric) {
+	registerHandlerForResolver(".", db, config.ResolverAddress, metrics)
+	registerHandlerForZones(config.Zones, db, metrics)
 
 	if config.Udp {
 		serverudp := &dns.Server{Addr: config.Address, Net: "udp", TsigSecret: nil}
@@ -103,12 +108,17 @@ func main() {
 		log.Fatal(err)
 	}
 
+	agent := agent.NewAgent(agent.Config{3, 100})
+	agent.AddOutput(output.StdoutOutput{})
+
+	go agent.Run()
+
 	// Run goroutines service
-	go launchReader(db, config.Kafka)
-	go serve(db, config.Dns)
+	go launchReader(db, config.Kafka, agent.Input)
+	go serve(db, config.Dns, agent.Input)
 
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	s := <-sig
 
-	fmt.Printf("Signal (%s) received, stopping\n", s)
+	log.WithFields(log.Fields{"signal": s}).Info("Signal received, stopping")
 }

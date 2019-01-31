@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	s "strings"
+	"time"
 
-	"github.com/miekg/dns"
+	ms "kafka-dns/metrics"
 	log "github.com/sirupsen/logrus"
+	"github.com/miekg/dns"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -72,9 +74,10 @@ func getRecordsFromBucket(bucket *bolt.Bucket, qname string) ([][]Record, error)
 	return records, nil
 }
 
-func registerHandlerForResolver(pattern string, db *bolt.DB, address string) {
+func registerHandlerForResolver(pattern string, db *bolt.DB, address string, metrics chan ms.Metric) {
 	dns.HandleFunc(pattern, func(w dns.ResponseWriter, r *dns.Msg) {
-		log.Info("Got a request for unsupported zone ", r.Question[0].Name)
+		log.Info("[DNS] Got a request for unsupported zone ", r.Question[0].Name)
+		metrics <- ms.NewMetric("resolver", nil, nil, time.Now(), ms.Counter)
 
 		qname := r.Question[0].Name
 		qtype := r.Question[0].Qtype
@@ -105,43 +108,43 @@ func registerHandlerForResolver(pattern string, db *bolt.DB, address string) {
 	})
 }
 
-func registerHandlerForZones(zones []string, db *bolt.DB) {
+func registerHandlerForZones(zones []string, db *bolt.DB, metrics chan ms.Metric) {
 	for _, z := range zones {
-		registerHandlerForZone(z, db)
+		registerHandlerForZone(z, db, metrics)
 	}
 }
 
 // Register a zone e.g: foo.com with the default handler
-func registerHandlerForZone(zone string, db *bolt.DB) {
+func registerHandlerForZone(zone string, db *bolt.DB, metrics chan ms.Metric) {
 	dns.HandleFunc(zone, func(w dns.ResponseWriter, r *dns.Msg) {
 		qname := r.Question[0].Name
 		qtype := r.Question[0].Qtype
 
-		log.Info("Got a request for ", r.Question[0].Name, " with the type ", dns.TypeToString[qtype])
+		log.Info("[DNS] Got a request for ", r.Question[0].Name, " with the type ", dns.TypeToString[qtype])
 
 		m := new(dns.Msg)
 		m.SetReply(r)
 
 		if qtype != dns.TypeAXFR {
-			findRecordsAndSetAsAnswersInMessage(qname, qtype, db, m, r)
-			m.SetRcode(r, dns.RcodeSuccess)
+			findRecordsAndSetAsAnswersInMessage(qname, qtype, db, m, r, metrics)
 			w.WriteMsg(m)
 		} else {
-			handlerZoneTransfer(qname, db, m, r, w)
+			handlerZoneTransfer(qname, db, m, r, w, metrics)
 		}
 	})
 }
 
-func findRecordsAndSetAsAnswersInMessage(qname string, qtype uint16, db *bolt.DB, m *dns.Msg, r *dns.Msg) {
-	db.View(func(tx *bolt.Tx) error {
+func findRecordsAndSetAsAnswersInMessage(qname string, qtype uint16, db *bolt.DB, m *dns.Msg, r *dns.Msg, metrics chan ms.Metric) {
+	metrics <- ms.NewMetric("queries", nil, nil, time.Now(), ms.Counter)
+
+	err := db.View(func(tx *bolt.Tx) error {
 		// TODO: check if the bucket already exists and has keys
 		recordsBucket := tx.Bucket([]byte("records"))
 
 		records, err := getRecordsFromBucket(recordsBucket, qname)
 
 		if err != nil {
-			log.Fatal(err)
-			return nil
+			return err
 		} else {
 			if len(records) > 0 {
 				for _, subRecords := range records {
@@ -159,8 +162,14 @@ func findRecordsAndSetAsAnswersInMessage(qname string, qtype uint16, db *bolt.DB
 			}
 		}
 
+		m.SetRcode(r, dns.RcodeSuccess)
 		return nil
 	})
+
+	if err != nil {
+		metrics <- ms.NewMetric("err-queries", nil, nil, time.Now(), ms.Counter)
+		log.Fatal(err)
+	}
 }
 
 // e.g: domai.com.|A -> domain.com.
@@ -176,8 +185,9 @@ func extractDomainFromKey(key []byte) []byte {
 // grouped into response messages in any particular way.
 //
 // More info RFC5936: https://tools.ietf.org/html/rfc5936#section-2.2
-func handlerZoneTransfer(qname string, db *bolt.DB, m *dns.Msg, r *dns.Msg, w dns.ResponseWriter) {
-	log.Info("request a transfer zone for ", qname)
+func handlerZoneTransfer(qname string, db *bolt.DB, m *dns.Msg, r *dns.Msg, w dns.ResponseWriter, metrics chan ms.Metric) {
+	log.Info("[DNS] request a transfer zone for ", qname)
+	metrics <- ms.NewMetric("queries-axfr", nil, nil, time.Now(), ms.Counter)
 
 	var soa []Record
 	var records [][]Record
@@ -207,8 +217,11 @@ func handlerZoneTransfer(qname string, db *bolt.DB, m *dns.Msg, r *dns.Msg, w dn
 	})
 
 	if err != nil {
+		metrics <- ms.NewMetric("err-queries-axfr", nil, nil, time.Now(), ms.Counter)
 		log.Fatal(err)
 		m.SetRcode(r, dns.RcodeServerFailure)
+		w.WriteMsg(m)
+		return
 	}
 
 	// push SOA RR at the begin of the answer
