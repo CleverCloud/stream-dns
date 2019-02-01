@@ -95,6 +95,10 @@ func main() {
 			viper.GetStringSlice("zones"),
 			viper.GetString("resolver_address"),
 		},
+		AgentConfig{
+			viper.GetInt("metrics_buffer_size"),
+			viper.GetDuration("metrics_flush_interval"),
+		},
 		viper.GetString("pathdb"),
 	}
 
@@ -108,7 +112,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	agent := agent.NewAgent(agent.Config{3, 100})
+	agent := agent.NewAgent(agent.Config{config.Agent.BufferSize, config.Agent.FlushInterval})
 	agent.AddOutput(output.StdoutOutput{})
 
 	go agent.Run()

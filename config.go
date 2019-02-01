@@ -1,8 +1,13 @@
 package main
 
+import (
+	"time"
+)
+
 type Config struct {
 	Kafka  KafkaConfig
 	Dns    DnsConfig
+	Agent  AgentConfig
 	PathDB string
 }
 
@@ -17,4 +22,9 @@ type DnsConfig struct {
 	Tcp             bool
 	Zones           []string
 	ResolverAddress string
+}
+
+type AgentConfig struct {
+	BufferSize    int
+	FlushInterval time.Duration
 }

@@ -83,12 +83,11 @@ func (a *Agent) connectOutputs() error {
 	for _, output := range a.outputs {
 		err := output.Connect() //TODO We should try to reconnect at least a second time
 
-		if err != nil {
-			log.Fatalf("[agent] Failed to connect to output %s, "+
-				"error was '%s' \n", output.Name(), err)
+	if err != nil {
+			log.Fatal("[agent] Failed to connect to output: ", output.Name(), "error was: ", err)
 		}
 
-		log.Infof("[agent] Successfully connected to output: %s\n", output.Name())
+		log.Info("[agent] Successfully connected to output: ", output.Name())
 	}
 
 	return nil
