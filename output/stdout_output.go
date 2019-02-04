@@ -2,8 +2,7 @@
 package output
 
 import (
-	"log"
-
+	log "github.com/sirupsen/logrus"
 	ms "kafka-dns/metrics"
 )
 
@@ -19,23 +18,9 @@ func (a StdoutOutput) Connect() error {
 
 func (a StdoutOutput) Write(metrics []ms.Metric) {
 	for _, m := range metrics {
-		tp := m.Type()
-		log.Print("%s ", m.Name)
-
-		for key, value := range m.Tags() {
-			log.Printf("tag: %s = %s ", key, value)
-		}
-
-		if tp == ms.Counter || tp == ms.Gauge {
-			for key, value := range m.Fields() {
-				log.Printf("field: %s = %d ", key, value)
-			}
-		} else {
-			for key, value := range m.Fields() {
-				log.Printf("field: %s = %s ", key, value)
-			}
-		}
-
-		log.Printf("\n")
+		log.WithFields(log.Fields{
+			"type": ms.TypeToString[m.Type()],
+			"name": m.Name(),
+		}).Info("[StdoutOutput] metric")
 	}
 }

@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	dns "github.com/miekg/dns"
-	log "github.com/sirupsen/logrus"
 )
 
 type Record struct {
@@ -72,7 +71,6 @@ func RecordToAnswer(record Record) dns.RR {
 	case dns.TypePTR:
 		rr = PTR(recordstr)
 	default:
-		log.Fatalf("Incorrect or unsupported record type: %s", recordstr)
 		return nil
 	}
 

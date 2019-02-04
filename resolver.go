@@ -1,11 +1,11 @@
 package main
 
 import (
-	"log"
 	"strings"
 	"time"
 
 	"github.com/miekg/dns"
+	log "github.com/sirupsen/logrus"
 )
 
 type QueryType uint16
