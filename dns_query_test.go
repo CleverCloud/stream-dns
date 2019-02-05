@@ -6,6 +6,11 @@ import (
 	"fmt"
 	"testing"
 	"encoding/json"
+	"time"
+
+	"kafka-dns/metrics"
+
+	log "github.com/sirupsen/logrus"
 	dns "github.com/miekg/dns"
 	bolt "go.etcd.io/bbolt"
 	"github.com/stretchr/testify/suite"
@@ -13,12 +18,12 @@ import (
 
 // Use this list of records if your test is not a specific case
 var defaultSeedRecords = [][]Record{
-	[]Record{Record{"a.com", "A", "1.1.1.1", 3600, 0}},
-	[]Record{Record{"b.com", "AAAA", "2.2.2.2", 1200, 0}, Record{"b.com", "AAAA", "3.3.3.3", 3600, 0}},
-	[]Record{Record{"c.com", "MX", "4.4.4.4", 3600, 0}},
+	[]Record{Record{"a.rock.", "A", "1.1.1.1", 3600, 0}},
+	[]Record{Record{"b.rock.", "AAAA", "2.2.2.2", 1200, 0}, Record{"b.rock.", "AAAA", "3.3.3.3", 3600, 0}},
+	[]Record{Record{"c.rock.", "MX", "4.4.4.4", 3600, 0}},
 }
 
-var defaultDnsConfig = DnsConfig{":8053", true, true}
+var defaultDnsConfig = DnsConfig{":8053", true, false, []string{"rock.", "services.cloud."}, "9.9.9.9"}
 
 type DnsQuerySuite struct {
 	suite.Suite
@@ -84,18 +89,23 @@ func (suite *DnsQuerySuite) TearDownTest() {
 func (suite *DnsQuerySuite) TestShouldHandleQuery() {
 	seedDBwithRecords(suite.DB, defaultSeedRecords)
 
-	go serve(suite.DB, defaultDnsConfig)
+	mockAgent := MockAgent{}
+	go mockAgent.Run()
+	go serve(suite.DB, defaultDnsConfig, mockAgent.Input)
+
+	// avoid connection refused because the DNS server is not ready
+	time.Sleep(100 * time.Millisecond)
 
 	client := new(dns.Client)
 	m := new(dns.Msg)
 
-	m.Question = append(m.Question, dns.Question{"a.com.", dns.TypeA, dns.ClassINET})
+	m.Question = append(m.Question, dns.Question{"a.rock.", dns.TypeA, dns.ClassINET})
 	m.RecursionDesired = true
 
-	r, _, err := client.Exchange(m, "localhost:8053")
+	r, _, err := client.Exchange(m, "127.0.0.1:8053")
 
 	if err != nil {
-		fmt.Print(err)
+		fmt.Printf("%s", err.Error())
 		suite.Fail("error on exchange")
 	}
 
@@ -115,7 +125,8 @@ func (suite *DnsQuerySuite) TestShouldHandleQuery() {
 //NOTE: this test depends on defaultSeedRecords
 func (suite *DnsQuerySuite) TestShouldGetNxDomainCodeWhenDomainIsNotRegister() {
 	// Run with a empty DB
-	go serve(suite.DB, defaultDnsConfig)
+	mockAgent := MockAgent{}
+	go serve(suite.DB, defaultDnsConfig, mockAgent.Input)
 
 	client := new(dns.Client)
 	m := new(dns.Msg)
@@ -137,4 +148,26 @@ func (suite *DnsQuerySuite) TestShouldGetNxDomainCodeWhenDomainIsNotRegister() {
 
 func TestDnsQueryTestSuite(t *testing.T) {
 	suite.Run(t, new(DnsQuerySuite))
+}
+
+// =======================
+// Deadletters all the message metrics
+type MockAgent struct {
+	Input  chan metrics.Metric
+}
+
+func NewAgent() MockAgent {
+	a := MockAgent {
+		Input:  make(chan metrics.Metric),
+	}
+
+	return a
+}
+
+func (a *MockAgent) Run() {
+	for {
+		log.Print("here agent")
+		<-a.Input
+		fmt.Print("consumed agent")
+	}
 }
