@@ -15,7 +15,7 @@ func TestLookup(t *testing.T) {
 	go mockServer.Listen()
 
 	query := NewQuery("google.com", QueryType(dns.TypeA), QueryType(dns.TypeAAAA), QueryType(dns.TypeMX))
-	resolver := NewResolver("localhost:8053", query, 2, 4)
+	resolver := NewResolver("localhost:8054", query, 2, 4)
 
 	// do
 	res, err := resolver.Lookup()
@@ -74,7 +74,7 @@ func handleRequestMock(w dns.ResponseWriter, r *dns.Msg) {
 func (m MockServer) Listen() {
 	dns.HandleFunc(".", handleRequestMock)
 
-	serverMock := &dns.Server{Addr: ":8053", Net: "udp", TsigSecret: nil}
+	serverMock := &dns.Server{Addr: ":8054", Net: "udp", TsigSecret: nil}
 
 	log.Printf("Launch the dns mock server")
 	if err := serverMock.ListenAndServe(); err != nil {
