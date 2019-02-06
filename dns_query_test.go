@@ -1,19 +1,19 @@
 package main
 
 import (
-	"os"
-	"net"
-	"fmt"
-	"testing"
 	"encoding/json"
+	"fmt"
+	"net"
+	"os"
+	"testing"
 	"time"
 
 	"kafka-dns/metrics"
 
-	log "github.com/sirupsen/logrus"
 	dns "github.com/miekg/dns"
-	bolt "go.etcd.io/bbolt"
+	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/suite"
+	bolt "go.etcd.io/bbolt"
 )
 
 // Use this list of records if your test is not a specific case
@@ -86,14 +86,17 @@ func (suite *DnsQuerySuite) TearDownTest() {
 }
 
 //NOTE: this test depends on defaultSeedRecords
-func (suite *DnsQuerySuite) TestShouldHandleQuery() {
+func (suite *DnsQuerySuite) TestShouldHandleQueryForManagedZone() {
 	seedDBwithRecords(suite.DB, defaultSeedRecords)
 
-	mockAgent := MockAgent{}
+	mockAgent := NewMockAgent()
 	go mockAgent.Run()
+
 	go serve(suite.DB, defaultDnsConfig, mockAgent.Input)
 
-	// avoid connection refused because the DNS server is not ready
+	// Avoid connection refused because the DNS server is not ready
+	// FIXME: I tried to set the Timeout + Dialtimeout for the client
+	// but that seem's to have no effect
 	time.Sleep(100 * time.Millisecond)
 
 	client := new(dns.Client)
@@ -122,28 +125,31 @@ func (suite *DnsQuerySuite) TestShouldHandleQuery() {
 	}
 }
 
-//NOTE: this test depends on defaultSeedRecords
-func (suite *DnsQuerySuite) TestShouldGetNxDomainCodeWhenDomainIsNotRegister() {
-	// Run with a empty DB
-	mockAgent := MockAgent{}
+func (suite *DnsQuerySuite) TestShouldHandleTheQueryWithTheResolver() {
+	mockAgent := NewMockAgent()
+	go mockAgent.Run()
+
 	go serve(suite.DB, defaultDnsConfig, mockAgent.Input)
+	time.Sleep(100 * time.Millisecond)
 
 	client := new(dns.Client)
 	m := new(dns.Msg)
 
-	m.Question = append(m.Question, dns.Question{"google.com.", dns.TypeA, dns.ClassINET})
+	m.Question = append(m.Question, dns.Question{"www.example.com.", dns.TypeA, dns.ClassINET})
 	m.RecursionDesired = true
 
 	r, _, err := client.Exchange(m, "localhost:8053")
 
 	if err != nil {
-		fmt.Print(err)
+		log.Error(err.Error())
 		suite.Fail("error on exchange")
 	}
 
-	if r.Rcode != dns.RcodeNameError {
-		suite.Fail(" *** invalid answer code: should get NXDOMAIN")
-	}
+	suite.Equal(1, len(r.Answer))
+	answer := r.Answer[0].Header()
+
+	suite.Equal(dns.TypeA, answer.Rrtype)
+	suite.Equal("www.example.com.", answer.Name)
 }
 
 func TestDnsQueryTestSuite(t *testing.T) {
@@ -151,23 +157,21 @@ func TestDnsQueryTestSuite(t *testing.T) {
 }
 
 // =======================
-// Deadletters all the message metrics
 type MockAgent struct {
-	Input  chan metrics.Metric
+	Input chan metrics.Metric
 }
 
-func NewAgent() MockAgent {
-	a := MockAgent {
-		Input:  make(chan metrics.Metric),
+func NewMockAgent() MockAgent {
+	a := MockAgent{
+		Input: make(chan metrics.Metric),
 	}
 
 	return a
 }
 
+// Deadletter all the metrics messages
 func (a *MockAgent) Run() {
 	for {
-		log.Print("here agent")
-		<-a.Input
-		fmt.Print("consumed agent")
+		<-a.Input // consume message to unblock Sender
 	}
 }
