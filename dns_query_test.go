@@ -69,7 +69,7 @@ func seedDBwithRecords(db *bolt.DB, records [][]Record) error {
 				return err
 			}
 
-			err = b.Put([]byte(rs[0].Name+"."), []byte(recordAsJson))
+			err = b.Put([]byte(rs[0].Name + "|" + rs[0].Type), []byte(recordAsJson))
 
 			if err != nil {
 				return err
@@ -152,8 +152,52 @@ func (suite *DnsQuerySuite) TestShouldHandleTheQueryWithTheResolver() {
 	suite.Equal("www.example.com.", answer.Name)
 }
 
+func (suite *DnsQuerySuite) TestShouldHandleAxfrQuery() {
+	var axfrRecords = [][]Record{
+		[]Record{Record{"zonetransfer.me.", "SOA", "1.1.1.1 2017042001 172800 900 1209600 3600", 3600, 0}},
+		[]Record{Record{"zonetransfer.me.", "NS", "nsztm1.digi.ninja.", 1200, 0}},
+		[]Record{Record{"foo.zonetransfer.me.", "A", "202.14.81.230", 1200, 0}},
+		[]Record{Record{"bar.zonetransfer.me.", "AAAA", "143.228.181.132", 1200, 0}},
+		[]Record{Record{"unknown.me.", "AAAA", "143.228.181.132", 1200, 0}},
+	}
+
+	seedDBwithRecords(suite.DB, axfrRecords)
+
+	mockAgent := NewMockAgent()
+	go mockAgent.Run()
+
+	axfrConfig := DnsConfig{":8053", true, false, []string{"zonetransfer.me.", "me."}, "9.9.9.9"}
+	go serve(suite.DB, axfrConfig, mockAgent.Input)
+	time.Sleep(100 * time.Millisecond) // Avoid connection refused because the DNS server is not ready 
+
+	client := new(dns.Client)
+	m := new(dns.Msg)
+
+	m.SetAxfr("zonetransfer.me.")
+	r, _, err := client.Exchange(m, "localhost:8053")
+
+	if err != nil {
+		log.Error(err.Error())
+		suite.Fail("error on exchange")
+	}
+
+	suite.Equal(5, len(r.Answer))
+
+	suite.True(answerEqualToRecord(r.Answer[0], axfrRecords[0][0])) // SOA
+	suite.True(answerEqualToRecord(r.Answer[1], axfrRecords[3][0])) // NS
+	suite.True(answerEqualToRecord(r.Answer[2], axfrRecords[2][0])) // A
+	suite.True(answerEqualToRecord(r.Answer[3], axfrRecords[1][0])) // AAAA
+	suite.True(answerEqualToRecord(r.Answer[4], axfrRecords[0][0])) // SOA
+}
+
 func TestDnsQueryTestSuite(t *testing.T) {
 	suite.Run(t, new(DnsQuerySuite))
+}
+
+
+func answerEqualToRecord(answer dns.RR, record Record) bool {
+	header := answer.Header()
+	return header.Rrtype == dns.StringToType[record.Type] && record.Name == header.Name
 }
 
 // =======================
