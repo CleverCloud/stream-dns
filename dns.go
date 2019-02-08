@@ -7,10 +7,11 @@ import (
 	s "strings"
 	"time"
 
-	ms "kafka-dns/metrics"
-	log "github.com/sirupsen/logrus"
 	"github.com/miekg/dns"
+	log "github.com/sirupsen/logrus"
 	bolt "go.etcd.io/bbolt"
+	ms "kafka-dns/metrics"
+	u "kafka-dns/utils"
 )
 
 func intoWildcardQName(qname string) string {
@@ -189,8 +190,49 @@ func handlerZoneTransfer(qname string, db *bolt.DB, m *dns.Msg, r *dns.Msg, w dn
 	log.Info("[DNS] request a transfer zone for ", qname)
 	metrics <- ms.NewMetric("queries-axfr", nil, nil, time.Now(), ms.Counter)
 
+	soa, records, err := findRecordsAndSOAForAXFRInDB(db, qname)
+
+	if err != nil {
+		metrics <- ms.NewMetric("err-queries-axfr", nil, nil, time.Now(), ms.Counter)
+		log.Fatal(err)
+		m.SetRcode(r, dns.RcodeServerFailure)
+		w.WriteMsg(m)
+		return
+	}
+
+	// push SOA RR at the begin of the answer
+	if soa != nil {
+		soaAnswer := RecordsToAnswer(soa)
+		m.Answer = append(m.Answer, soaAnswer[0])
+	}
+
+	recordsLen := len(records)
+
+	if recordsLen > 0 {
+		// NOTE: We have to chunk the records payload to avoid the error: message too large
+		// create a sliding window
+		if recordsLen < 500 {
+			for _, recordValues := range records {
+				for _, answer := range RecordsToAnswer(recordValues) {
+					m.Answer = append(m.Answer, answer)
+				}
+			}
+		} else {
+			sendRecordsByChunk(records, 500, m, w)
+		}
+	}
+
+	// push SOA RR at the end of the answer
+	if soa != nil {
+		soaAnswer := RecordsToAnswer(soa)
+		m.Answer = append(m.Answer, soaAnswer[0])
+		w.WriteMsg(m)
+	}
+}
+
+func findRecordsAndSOAForAXFRInDB(db *bolt.DB, qname string) ([]Record, [][]Record, error) {
 	var soa []Record
-	var records [][]Record
+	var records = [][]Record{}
 
 	err := db.View(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket([]byte("records"))
@@ -216,51 +258,27 @@ func handlerZoneTransfer(qname string, db *bolt.DB, m *dns.Msg, r *dns.Msg, w dn
 		return nil
 	})
 
-	if err != nil {
-		metrics <- ms.NewMetric("err-queries-axfr", nil, nil, time.Now(), ms.Counter)
-		log.Fatal(err)
-		m.SetRcode(r, dns.RcodeServerFailure)
-		w.WriteMsg(m)
-		return
-	}
+	return soa, records, err
+}
 
-	// push SOA RR at the begin of the answer
-	if soa != nil {
-		soaAnswer := RecordsToAnswer(soa)
-		m.Answer = append(m.Answer, soaAnswer[0])
-	}
+func sendRecordsByChunk(records [][]Record, sizeChunk int, m *dns.Msg, w dns.ResponseWriter) {
+	begin := 0
+	end := sizeChunk // arbitrary value found by manual testing
+	lenRecords := len(records)
 
-	w.WriteMsg(m)
-	m.Answer = nil
-
-	recordsLen := len(records)
-
-	if recordsLen > 0 {
-		// NOTE: We have to chunk the records payload to avoid the error: message too large
-		// create a sliding window
-		begin := 0
-		end := 500 // arbitrary value found by manuel test
-
-		for end < recordsLen {
-			for _, recordValues := range records[begin : end%recordsLen] {
-				for _, answer := range RecordsToAnswer(recordValues) {
-					m.Answer = append(m.Answer, answer)
-				}
+	for begin < lenRecords {
+		for _, recordValues := range records[begin : u.Min(end, lenRecords)] {
+			for _, answer := range RecordsToAnswer(recordValues) {
+				m.Answer = append(m.Answer, answer)
 			}
-
-			w.WriteMsg(m)
-			m.Answer = nil
-
-			begin = begin + 500
-			end = end + 500
 		}
+
+		w.WriteMsg(m)
+		m.Answer = nil
+
+		begin = begin + sizeChunk
+		end = end + sizeChunk
 	}
 
-	// push SOA RR at the end of the answer
-	if soa != nil {
-		soaAnswer := RecordsToAnswer(soa)
-		m.Answer = nil
-		m.Answer = append(m.Answer, soaAnswer[0])
-		w.WriteMsg(m)
-	}
+	m.Answer = nil
 }
