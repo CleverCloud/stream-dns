@@ -12,6 +12,7 @@ stages:
   script:
     - ls
     - go version
+    - go test -v ./...
 
 
 #test:
