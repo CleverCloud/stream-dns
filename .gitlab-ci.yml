@@ -10,13 +10,13 @@ stages:
   only:
     - merge_requests  
   script:
-    - ls
     - apt-get update
     - apt-get -y upgrade
     - curl -O https://storage.googleapis.com/golang/go1.11.2.linux-amd64.tar.gz
     - tar -C /usr/local -xzf go1.11.2.linux-amd64.tar.gz
     - export PATH=$PATH:/usr/local/go/bin
     - go version
+    - go test -v ./...
 
 
 
