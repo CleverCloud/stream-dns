@@ -1,0 +1,4 @@
+test:
+  image: golang
+  script:
+    - go test -v ./...
