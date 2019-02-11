@@ -1,0 +1,11 @@
+[Unit]
+Description=Kafka DNS server
+
+[Service]
+EnvironmentFile=/etc/conf.d/kafka-dns.conf
+ExecStart=/usr/bin/kafka-dns
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
