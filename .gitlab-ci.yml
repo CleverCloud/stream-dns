@@ -10,7 +10,6 @@ stages:
   only:
     - merge_requests  
   script:
-    - ls
     - go version
     - go test -v ./...
 
