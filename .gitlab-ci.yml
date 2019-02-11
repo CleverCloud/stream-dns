@@ -20,10 +20,3 @@ stages:
     - go version
     - go test -v ./...
 
-
-
-
-#test:
-#  image: golang
-#  script:
-#    - go test -v ./...
