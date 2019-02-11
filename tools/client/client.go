@@ -10,14 +10,14 @@ package main
 import (
 	"fmt"
 	"github.com/miekg/dns"
-	"log"
 	"os"
+	log "github.com/sirupsen/logrus"
 )
 
 func main() {
 	argsWithoutProg := os.Args[1:]
 
-	if len(argsWithoutProg)%2 != 0 {
+	if len(argsWithoutProg)%2 != 0 || len(argsWithoutProg) == 0 {
 		fmt.Printf("USAGE: client [[qname] [qtype]]...")
 		os.Exit(1)
 	}
