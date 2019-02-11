@@ -12,6 +12,7 @@ stages:
   script:
     - ls
     - apt install snapd -y
+    - snap install go --classic
 
 
 #test:
