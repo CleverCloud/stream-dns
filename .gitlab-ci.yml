@@ -1,4 +1,20 @@
-test:
-  image: golang
+stages:
+  - 🤞tests
+  - 📦build
+
+# === Some tests ===
+🤔function_tests:
+  stage: 🤞tests
+  tags:
+    - cc-runner
+  only:
+    - merge_requests  
   script:
-    - go test -v ./...
+    - ls
+    - go version
+
+
+#test:
+#  image: golang
+#  script:
+#    - go test -v ./...
