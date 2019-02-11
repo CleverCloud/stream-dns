@@ -11,7 +11,7 @@ stages:
     - merge_requests  
   script:
     - ls
-    - apt install snapd
+    - apt install snapd -y
 
 
 #test:
