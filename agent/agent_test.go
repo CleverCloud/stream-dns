@@ -72,31 +72,3 @@ func TestAgentFlushIncompleteBufferWhenHeGotATimeout(t *testing.T) {
 		t.Fail()
 	}
 }
-
-func TestAgentFlushTheMetricsWhenBufferIsFilled(t *testing.T) {
-	// got
-	c := make(chan int)
-
-	agent := NewAgent(Config{3, 100})
-	agent.AddOutput(MockOutput{c})
-
-	go agent.Run()
-
-	// do
-	agent.Input <- ms.NewMetric("bar", nil, nil, time.Now(), ms.Counter)
-	agent.Input <- ms.NewMetric("foo", nil, nil, time.Now(), ms.Counter)
-	agent.Input <- ms.NewMetric("rab", nil, nil, time.Now(), ms.Counter)
-
-	// NOTE: We send more metrics than the size of the buffer
-	agent.Input <- ms.NewMetric("more", nil, nil, time.Now(), ms.Counter)
-	agent.Input <- ms.NewMetric("more", nil, nil, time.Now(), ms.Counter)
-
-	// want
-	select {
-	case len := <-c:
-		assert.Equal(t, 3, len)
-	case <-time.After(500 * time.Millisecond):
-		log.Fatal("[TIMEOUT] the mock output never forwarded the len metrics")
-		t.Fail()
-	}
-}
