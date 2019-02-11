@@ -11,8 +11,14 @@ stages:
     - merge_requests  
   script:
     - ls
-    - apt install snapd -y
-    - snap install go --classic
+    - apt-get update
+    - apt-get -y upgrade
+    - curl -O https://storage.googleapis.com/golang/go1.11.2.linux-amd64.tar.gz
+    - tar -xvf go1.11.2.linux-amd64.tar.gz
+    - mv go /usr/local
+    - go version
+
+
 
 
 #test:
