@@ -126,3 +126,8 @@ A Kafka producer to register custom record in the Kafka
 Build: `go install kafka-dns/tools/producer`
 Usage: `producer name type content ttl priority`
 Run: `$GOPATH/bin/producer yolo.com A 2.4.4.6 3600 0`
+
+## Continuous integration
+
+This project use a gitlab runner for his CI. The `.gitlab-ci.yml` file contains your tests and overall process steps.
+The gitlab runner can be found in the _Clever CI_ organisation: `orga_932b0d2f-b29b-41f3-a36e-845ce9d0f9ed` with the app-id: `app_1879bf1e-fa0b-4bd8-b923-15152a0fdda4`.
