@@ -4,6 +4,7 @@ import (
 	"log"
 	"net"
 	"testing"
+	"time"
 
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
@@ -13,9 +14,10 @@ func TestLookup(t *testing.T) {
 	// got
 	mockServer := MockServer{}
 	go mockServer.Listen()
+	time.Sleep(100 * time.Millisecond)
 
 	query := NewQuery("google.com", QueryType(dns.TypeA), QueryType(dns.TypeAAAA), QueryType(dns.TypeMX))
-	resolver := NewResolver("localhost:8054", query, 2, 4)
+	resolver := NewResolver("127.0.0.1:8054", query, 2, 4)
 
 	// do
 	res, err := resolver.Lookup()
