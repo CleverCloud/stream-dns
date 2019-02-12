@@ -68,7 +68,7 @@ func seedDBwithRecords(db *bolt.DB, records [][]Record) error {
 			if err != nil {
 				return err
 			}
-
+			
 			err = b.Put([]byte(rs[0].Name + "|" + rs[0].Type), []byte(recordAsJson))
 
 			if err != nil {
@@ -188,6 +188,30 @@ func (suite *DnsQuerySuite) TestShouldHandleAxfrQuery() {
 	suite.True(answerEqualToRecord(r.Answer[2], axfrRecords[2][0])) // A
 	suite.True(answerEqualToRecord(r.Answer[3], axfrRecords[1][0])) // AAAA
 	suite.True(answerEqualToRecord(r.Answer[4], axfrRecords[0][0])) // SOA
+}
+
+func (suite *DnsQuerySuite) TestShouldHandleAxfrQueryForUnsupportedZone() {
+	seedDBwithRecords(suite.DB, defaultSeedRecords)
+	
+	mockAgent := NewMockAgent()
+	go mockAgent.Run()
+
+	axfrConfig := DnsConfig{":8053", true, false, []string{"zonetransfer.me."}, "9.9.9.9"}
+	go serve(suite.DB, axfrConfig, mockAgent.Input)
+	time.Sleep(100 * time.Millisecond) // Avoid connection refused because the DNS server is not ready 
+
+	client := new(dns.Client)
+	m := new(dns.Msg)
+
+	m.SetAxfr("not.ok.")
+	r, _, err := client.Exchange(m, "localhost:8053")
+
+	if err != nil {
+		log.Error(err.Error())
+		suite.Fail("error on exchange")
+	}
+
+	suite.Equal(r.Rcode, dns.RcodeNotAuth)
 }
 
 func TestDnsQueryTestSuite(t *testing.T) {
