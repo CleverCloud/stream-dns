@@ -86,27 +86,42 @@ func registerHandlerForResolver(pattern string, db *bolt.DB, address string, met
 		m := new(dns.Msg)
 		m.SetReply(r)
 
-		query := NewQuery(qname, QueryType(qtype))
-		resolver := NewResolver(address, query, 2, 4)
-
-		records, err := resolver.Lookup()
-
-		if err != nil {
-			log.Fatal(err)
-			m.SetRcode(r, dns.RcodeServerFailure)
-		}
-
-		if len(records) > 0 {
-			answers := RecordsToAnswer(records[QueryType(qtype)])
-
-			for _, answer := range answers {
-				m.Answer = append(m.Answer, answer)
+		if qtype == dns.TypeAXFR {
+			// If a server is not authoritative for the queried zone, the server SHOULD set the value to NotAuth(9).
+			// The query has reached the resolver with an AXFR type then the query ask for a not authoritative zone.
+			// More info: IETF RFC-5936 https://tools.ietf.org/html/rfc5936#section-2.2.1
+			m.SetRcode(r, dns.RcodeNotAuth) // Server Not Authoritative for zone
+		} else {
+			answers, err := resolverLookup(address, qname, qtype)
+			
+			if err != nil {
+				metrics <- ms.NewMetric("resolver error", nil, nil, time.Now(), ms.Counter)
+				log.Fatal("[resolver] ", err)
+				m.SetRcode(r, dns.RcodeServerFailure)
+			} else {
+				for _, answer := range answers {
+					m.Answer = append(m.Answer, answer)
+				}
+				m.SetRcode(r, dns.RcodeSuccess)
 			}
 		}
 
-		m.SetRcode(r, dns.RcodeSuccess)
 		w.WriteMsg(m)
 	})
+}
+
+func resolverLookup(address string, qname string, qtype uint16) ([]dns.RR, error) {
+	query := NewQuery(qname, QueryType(qtype))
+	resolver := NewResolver(address, query, 2, 4)
+	
+	records, err := resolver.Lookup()
+
+	if err != nil {
+		return nil, err
+	}
+
+	answers := RecordsToAnswer(records[QueryType(qtype)])
+	return answers, nil
 }
 
 func registerHandlerForZones(zones []string, db *bolt.DB, metrics chan ms.Metric) {
@@ -169,7 +184,7 @@ func findRecordsAndSetAsAnswersInMessage(qname string, qtype uint16, db *bolt.DB
 
 	if err != nil {
 		metrics <- ms.NewMetric("err-queries", nil, nil, time.Now(), ms.Counter)
-		log.Fatal(err)
+		log.Fatal("[dns]: ", err)
 	}
 }
 
@@ -194,7 +209,7 @@ func handlerZoneTransfer(qname string, db *bolt.DB, m *dns.Msg, r *dns.Msg, w dn
 
 	if err != nil {
 		metrics <- ms.NewMetric("err-queries-axfr", nil, nil, time.Now(), ms.Counter)
-		log.Fatal(err)
+		log.Fatal("[AXFR] ", err)
 		m.SetRcode(r, dns.RcodeServerFailure)
 		w.WriteMsg(m)
 		return
@@ -267,7 +282,7 @@ func sendRecordsByChunk(records [][]Record, sizeChunk int, m *dns.Msg, w dns.Res
 	lenRecords := len(records)
 
 	for begin < lenRecords {
-		for _, recordValues := range records[begin : u.Min(end, lenRecords)] {
+		for _, recordValues := range records[begin:u.Min(end, lenRecords)] {
 			for _, answer := range RecordsToAnswer(recordValues) {
 				m.Answer = append(m.Answer, answer)
 			}
