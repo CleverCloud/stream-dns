@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"kafka-dns/metrics"
+	"stream-dns/metrics"
 
 	dns "github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"

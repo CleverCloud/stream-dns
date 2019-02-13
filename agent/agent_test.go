@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	ms "kafka-dns/metrics"
+	ms "stream-dns/metrics"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
