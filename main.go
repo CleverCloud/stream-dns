@@ -8,9 +8,9 @@ import (
 	"syscall"
 	"time"
 
-	"kafka-dns/agent"
-	ms "kafka-dns/metrics"
-	"kafka-dns/output"
+	"stream-dns/agent"
+	ms "stream-dns/metrics"
+	"stream-dns/output"
 
 	dns "github.com/miekg/dns"
 	"github.com/segmentio/kafka-go"

@@ -7,7 +7,7 @@ import (
 	"os"
 
 	w "github.com/miton18/go-warp10/base"
-	ms "kafka-dns/metrics"
+	ms "stream-dns/metrics"
 )
 
 type Warp10Output struct {

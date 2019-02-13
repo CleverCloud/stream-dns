@@ -1,1 +1,1 @@
-module kafka-dns
+module stream-dns

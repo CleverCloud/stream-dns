@@ -3,7 +3,7 @@ package output
 
 import (
 	log "github.com/sirupsen/logrus"
-	ms "kafka-dns/metrics"
+	ms "stream-dns/metrics"
 )
 
 type StdoutOutput struct{}

@@ -16,8 +16,8 @@ package agent
 import (
 	"time"
 
-	"kafka-dns/metrics"
-	"kafka-dns/output"
+	"stream-dns/metrics"
+	"stream-dns/output"
 
 	log "github.com/sirupsen/logrus"
 )

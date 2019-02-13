@@ -1,6 +1,6 @@
 package output
 
-import "kafka-dns/metrics"
+import "stream-dns/metrics"
 
 type Output interface {
 	Name() string

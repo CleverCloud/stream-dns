@@ -10,8 +10,8 @@ import (
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 	bolt "go.etcd.io/bbolt"
-	ms "kafka-dns/metrics"
-	u "kafka-dns/utils"
+	ms "stream-dns/metrics"
+	u "stream-dns/utils"
 )
 
 func intoWildcardQName(qname string) string {
