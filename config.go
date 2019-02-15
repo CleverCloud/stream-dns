@@ -12,6 +12,11 @@ type Config struct {
 	sentryDSN string
 }
 
+type PulsarConfig struct {
+	Address string
+	Topic   string
+}
+
 type KafkaConfig struct {
 	Address    []string
 	Topic      string
