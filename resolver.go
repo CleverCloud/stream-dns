@@ -4,6 +4,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/getsentry/raven-go"
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 )
@@ -58,6 +59,7 @@ func (r *Resolver) Lookup() (map[QueryType][]Record, error) {
 			// 'll block on the send: resultsChan <- records.
 			// Maybe we can do some best efforts and return both Records (for types that have succeeded)
 			// and error for others (not sure the API'll be great).
+			raven.CaptureError(res.error, map[string]string{"unit": "resolver"})
 			log.Fatal(res.error)
 		}
 
@@ -94,6 +96,11 @@ func (r *Resolver) exchange(target string, server string, queryType QueryType) (
 	client := &dns.Client{DialTimeout: r.timeout * time.Millisecond}
 
 	res, _, err := client.Exchange(msg, server)
+
+	if err != nil {
+		raven.CaptureError(err, map[string]string{"unit": "resolver"})
+		log.Fatal(err)
+	}
 
 	if err == nil && len(res.Answer) > 0 {
 		records = AnswersToRecord(target, queryType, res.Answer)

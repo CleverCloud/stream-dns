@@ -7,9 +7,11 @@ import (
 	s "strings"
 	"time"
 
+	"github.com/getsentry/raven-go"
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 	bolt "go.etcd.io/bbolt"
+
 	ms "stream-dns/metrics"
 	u "stream-dns/utils"
 )
@@ -50,6 +52,7 @@ func getRecordsFromBucket(bucket *bolt.Bucket, qname string) ([][]Record, error)
 		err := json.Unmarshal([]byte(v), &record)
 
 		if err != nil {
+			raven.CaptureError(err, map[string]string{"unit": "dns"})
 			return nil, err
 		} else {
 			records = append(records, record)
@@ -65,6 +68,7 @@ func getRecordsFromBucket(bucket *bolt.Bucket, qname string) ([][]Record, error)
 
 			err := json.Unmarshal([]byte(v), &record)
 			if err != nil {
+				raven.CaptureError(err, map[string]string{"unit": "dns"})
 				return nil, err
 			} else {
 				records = append(records, record)
@@ -93,9 +97,10 @@ func registerHandlerForResolver(pattern string, db *bolt.DB, address string, met
 			m.SetRcode(r, dns.RcodeNotAuth) // Server Not Authoritative for zone
 		} else {
 			answers, err := resolverLookup(address, qname, qtype)
-			
+
 			if err != nil {
 				metrics <- ms.NewMetric("resolver error", nil, nil, time.Now(), ms.Counter)
+				raven.CaptureError(err, map[string]string{"unit": "dns"})
 				log.Fatal("[resolver] ", err)
 				m.SetRcode(r, dns.RcodeServerFailure)
 			} else {
@@ -113,10 +118,11 @@ func registerHandlerForResolver(pattern string, db *bolt.DB, address string, met
 func resolverLookup(address string, qname string, qtype uint16) ([]dns.RR, error) {
 	query := NewQuery(qname, QueryType(qtype))
 	resolver := NewResolver(address, query, 2, 4)
-	
+
 	records, err := resolver.Lookup()
 
 	if err != nil {
+		raven.CaptureError(err, map[string]string{"unit": "dns", "action": "lookup"})
 		return nil, err
 	}
 
@@ -160,6 +166,7 @@ func findRecordsAndSetAsAnswersInMessage(qname string, qtype uint16, db *bolt.DB
 		records, err := getRecordsFromBucket(recordsBucket, qname)
 
 		if err != nil {
+			raven.CaptureError(err, map[string]string{"unit": "dns", "action": "find records"})
 			return err
 		} else {
 			if len(records) > 0 {
@@ -184,6 +191,7 @@ func findRecordsAndSetAsAnswersInMessage(qname string, qtype uint16, db *bolt.DB
 
 	if err != nil {
 		metrics <- ms.NewMetric("err-queries", nil, nil, time.Now(), ms.Counter)
+		raven.CaptureError(err, map[string]string{"unit": "dns", "action": "find records"})
 		log.Fatal("[dns]: ", err)
 	}
 }
@@ -209,6 +217,7 @@ func handlerZoneTransfer(qname string, db *bolt.DB, m *dns.Msg, r *dns.Msg, w dn
 
 	if err != nil {
 		metrics <- ms.NewMetric("err-queries-axfr", nil, nil, time.Now(), ms.Counter)
+		raven.CaptureError(err, map[string]string{"unit": "dns", "action": "axfr"})
 		log.Fatal("[AXFR] ", err)
 		m.SetRcode(r, dns.RcodeServerFailure)
 		w.WriteMsg(m)
