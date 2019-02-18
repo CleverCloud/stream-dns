@@ -1,4 +1,4 @@
-# Kafka DNS
+# Stream DNS
 
 A DNS server, written in Go.
 
@@ -104,6 +104,7 @@ The following env variables are needed:
 | DNS_AGENT_METRICS_BUFFER_SIZE    | int            | Size of the metrics buffer in bytes                                                             |
 | DNS_AGENT_METRICS_FLUSH_INTERVAL | int            | Flushing interval of the metrics                                                                |
 | DNS_PATHDB                       | string         | Path of the bbolt database e.g: "/tmp/my.db"                                                    |
+| DNS_SENTRY_DSN                   | string         | DSN to the sentry project e.g: "https://<key>:<secret>@sentry.io/<project>"                     |
 
 ## Tools
 
@@ -131,3 +132,8 @@ Run: `$GOPATH/bin/producer yolo.com A 2.4.4.6 3600 0`
 
 This project use a gitlab runner for his CI. The `.gitlab-ci.yml` file contains your tests and overall process steps.
 The gitlab runner can be found in the _Clever CI_ organisation: `orga_932b0d2f-b29b-41f3-a36e-845ce9d0f9ed` with the app-id: `app_1879bf1e-fa0b-4bd8-b923-15152a0fdda4`.
+
+## Sentry | error tracker
+
+The Sentry dashboard is available here: https://sentry-clevercloud-customers.services.clever-cloud.com/clevercloud/stream-dns/
+You have just have to define the `DNS_SENTRY_DSN` env variable to use it or let it empty to ignore this (in development mode).
