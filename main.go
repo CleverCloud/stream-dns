@@ -12,6 +12,7 @@ import (
 	ms "stream-dns/metrics"
 	"stream-dns/output"
 
+	"github.com/getsentry/raven-go"
 	dns "github.com/miekg/dns"
 	"github.com/segmentio/kafka-go"
 	log "github.com/sirupsen/logrus"
@@ -43,15 +44,21 @@ func launchReader(db *bolt.DB, config KafkaConfig, metrics chan ms.Metric) {
 		}
 		db.Update(func(tx *bolt.Tx) error {
 			b, err := tx.CreateBucketIfNotExists([]byte("records"))
+
 			if err != nil {
+				raven.CaptureError(err, nil)
 				log.Fatal(err)
 			}
-			err2 := b.Put(m.Key, m.Value)
-			if err2 != nil {
-				log.Fatal(err2)
 
-				return err2
+			err = b.Put(m.Key, m.Value)
+
+			if err != nil {
+				raven.CaptureError(err, nil)
+				log.Fatal(err)
+
+				return err
 			}
+
 			return nil
 		})
 	}
@@ -100,18 +107,22 @@ func main() {
 			viper.GetDuration("metrics_flush_interval"),
 		},
 		viper.GetString("pathdb"),
+		viper.GetString("sentry_dsn"),
 	}
 
-	log.Info("zones: ", config.Dns.Zones)
+	// Sentry
+	raven.SetDSN(config.sentryDSN)
 
 	// Setup os signal to stop this service
 	sig := make(chan os.Signal)
 
 	db, err := bolt.Open(config.PathDB, 0600, nil)
 	if err != nil {
+		raven.CaptureError(err, map[string]string{"step": "init"})
 		log.Fatal(err)
 	}
 
+	// Metrics
 	agent := agent.NewAgent(agent.Config{config.Agent.BufferSize, config.Agent.FlushInterval})
 	agent.AddOutput(output.StdoutOutput{})
 

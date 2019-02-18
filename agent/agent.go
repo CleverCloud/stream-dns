@@ -19,6 +19,7 @@ import (
 	"stream-dns/metrics"
 	"stream-dns/output"
 
+	"github.com/getsentry/raven-go"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -51,6 +52,8 @@ func (a *Agent) Run() error {
 	err := a.connectOutputs()
 
 	if err != nil {
+		raven.CaptureError(err, map[string]string{"unit": "agent-metrics"})
+		log.Fatal(err)
 		return err
 	}
 
@@ -83,7 +86,8 @@ func (a *Agent) connectOutputs() error {
 	for _, output := range a.outputs {
 		err := output.Connect() //TODO We should try to reconnect at least a second time
 
-	if err != nil {
+		if err != nil {
+			raven.CaptureError(err, map[string]string{"unit": "agent-metrics"})
 			log.Fatal("[agent] Failed to connect to output: ", output.Name(), "error was: ", err)
 		}
 

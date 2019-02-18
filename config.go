@@ -5,10 +5,11 @@ import (
 )
 
 type Config struct {
-	Kafka  KafkaConfig
-	Dns    DnsConfig
-	Agent  AgentConfig
-	PathDB string
+	Kafka     KafkaConfig
+	Dns       DnsConfig
+	Agent     AgentConfig
+	PathDB    string
+	sentryDSN string
 }
 
 type KafkaConfig struct {
