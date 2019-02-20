@@ -1,0 +1,11 @@
+[Unit]
+Description=Stream DNS server
+
+[Service]
+EnvironmentFile=/etc/conf.d/stream-dns
+ExecStart=/usr/bin/stream-dns
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
