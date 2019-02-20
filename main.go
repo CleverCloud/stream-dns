@@ -1,7 +1,7 @@
 package main
 
 import (
-	"context"
+	"fmt"
 	"os"
 	"os/signal"
 	s "strings"
@@ -12,9 +12,9 @@ import (
 	ms "stream-dns/metrics"
 	"stream-dns/output"
 
+	cluster "github.com/bsm/sarama-cluster"
 	"github.com/getsentry/raven-go"
 	dns "github.com/miekg/dns"
-	"github.com/segmentio/kafka-go"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 	bolt "go.etcd.io/bbolt"
@@ -23,49 +23,73 @@ import (
 func launchReader(db *bolt.DB, config KafkaConfig, metrics chan ms.Metric) {
 	log.Info("Read from kafka topic")
 
-	r := kafka.NewReader(kafka.ReaderConfig{
-		Brokers:   config.Address,
-		Topic:     config.Topic,
-		Partition: 0,
-		MinBytes:  10e3, // 10KB
-		MaxBytes:  10e6, // 10MB
-	})
+	configConsumer := cluster.NewConfig()
+	configConsumer.Consumer.Return.Errors = true
+	configConsumer.Group.Return.Notifications = true
+	configConsumer.Config.Net.SASL.Enable = false
+	configConsumer.Config.Net.TLS.Enable = false
 
-	for {
-		m, errm := r.ReadMessage(context.Background())
-		if errm != nil {
-			break
-		}
-		log.Debug("Got record for domain ", string(m.Key))
-		metrics <- ms.NewMetric("nb-record", nil, nil, time.Now(), ms.Counter)
-
-		if s.Index(string(m.Key), "*") != -1 {
-			log.Printf("message at topic/partition/offset %v/%v/%v: %s = %s\n", m.Topic, m.Partition, m.Offset, string(m.Key), string(m.Value))
-		}
-		db.Update(func(tx *bolt.Tx) error {
-			b, err := tx.CreateBucketIfNotExists([]byte("records"))
-
-			if err != nil {
-				raven.CaptureError(err, nil)
-				log.Fatal(err)
-			}
-
-			err = b.Put(m.Key, m.Value)
-
-			if err != nil {
-				raven.CaptureError(err, nil)
-				log.Fatal(err)
-
-				return err
-			}
-
-			return nil
-		})
+	if config.SaslEnable {
+		configConsumer.Config.Net.SASL.Enable = true
+		configConsumer.Config.Net.SASL.User = config.User
+		configConsumer.Config.Net.SASL.Password = config.Password
 	}
 
-	r.Close()
-	defer db.Close()
+	if config.TlsEnable {
+		configConsumer.Config.Net.TLS.Enable = true
+	}
 
+	configConsumer.ClientID = "stream-dns.consumer"
+	configConsumer.Consumer.Offsets.CommitInterval = 10 * time.Second
+
+	brokers := config.Address
+	topics := []string{config.Topic}
+
+	consumer, err := cluster.NewConsumer(brokers, "", topics, configConsumer)
+	if err != nil {
+		log.Panic(err)
+	}
+
+	for {
+		select {
+		case m, _ := <-consumer.Messages():
+			log.Debug("Got record for domain ", string(m.Key))
+			metrics <- ms.NewMetric("nb-record", nil, nil, time.Now(), ms.Counter)
+
+			if s.Index(string(m.Key), "*") != -1 {
+				log.Printf("message at topic/partition/offset %v/%v/%v: %s = %s\n", m.Topic, m.Partition, m.Offset, string(m.Key), string(m.Value))
+			}
+			db.Update(func(tx *bolt.Tx) error {
+				b, err := tx.CreateBucketIfNotExists([]byte("records"))
+
+				if err != nil {
+					raven.CaptureError(err, nil)
+					log.Fatal(err)
+				}
+
+				err = b.Put(m.Key, m.Value)
+
+				if err != nil {
+					raven.CaptureError(err, nil)
+					log.Fatal(err)
+
+					return err
+				}
+
+				return nil
+			})
+
+		case err := <-consumer.Errors():
+			metrics <- ms.NewMetric("kafka-consumer", nil, nil, time.Now(), ms.Counter)
+			log.WithError(err).Error("Kafka consumer error")
+
+		case notif := <-consumer.Notifications():
+			log.Info(fmt.Sprintf("%+v", notif))
+
+		}
+	}
+
+	defer db.Close()
 }
 
 func serve(db *bolt.DB, config DnsConfig, metrics chan ms.Metric) {
@@ -92,8 +116,12 @@ func main() {
 
 	config := Config{
 		KafkaConfig{
-			viper.GetStringSlice("kafka_address"),
-			viper.GetString("kafka_topic"),
+			Address: viper.GetStringSlice("kafka_address"),
+			Topic: viper.GetString("kafka_topic"),
+			SaslEnable: viper.GetBool("sasl_enable"),
+			TlsEnable: viper.GetBool("tls_enable"),
+			User: viper.GetString("kafka_user"),
+			Password: viper.GetString("kafka_password"),
 		},
 		DnsConfig{
 			viper.GetString("address"),
