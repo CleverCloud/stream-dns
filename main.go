@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"os"
 	"os/signal"
 	s "strings"
@@ -12,7 +11,7 @@ import (
 	ms "stream-dns/metrics"
 	"stream-dns/output"
 
-	cluster "github.com/bsm/sarama-cluster"
+	"github.com/Shopify/sarama"
 	"github.com/getsentry/raven-go"
 	dns "github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
@@ -23,37 +22,41 @@ import (
 func launchReader(db *bolt.DB, config KafkaConfig, metrics chan ms.Metric) {
 	log.Info("Read from kafka topic")
 
-	configConsumer := cluster.NewConfig()
+	configConsumer := sarama.NewConfig()
 	configConsumer.Consumer.Return.Errors = true
-	configConsumer.Group.Return.Notifications = true
-	configConsumer.Config.Net.SASL.Enable = false
-	configConsumer.Config.Net.TLS.Enable = false
+	configConsumer.Net.SASL.Enable = false
+	configConsumer.Net.TLS.Enable = false
 
 	if config.SaslEnable {
-		configConsumer.Config.Net.SASL.Enable = true
-		configConsumer.Config.Net.SASL.User = config.User
-		configConsumer.Config.Net.SASL.Password = config.Password
+		configConsumer.Net.SASL.Enable = true
+		configConsumer.Net.SASL.User = config.User
+		configConsumer.Net.SASL.Password = config.Password
+		configConsumer.Net.SASL.Mechanism = "PLAIN" //TODO make this configurable
 	}
 
 	if config.TlsEnable {
-		configConsumer.Config.Net.TLS.Enable = true
+		configConsumer.Net.TLS.Enable = true
 	}
 
 	configConsumer.ClientID = "stream-dns.consumer"
 	configConsumer.Consumer.Offsets.CommitInterval = 10 * time.Second
 
 	brokers := config.Address
-	topics := []string{config.Topic}
 
-	consumer, err := cluster.NewConsumer(brokers, "", topics, configConsumer)
+	consumer, err := sarama.NewConsumer(brokers, configConsumer)
+	if err != nil {
+		log.Panic(err)
+	}
+
+	partitionConsumer, err := consumer.ConsumePartition(config.Topic, 0, sarama.OffsetOldest)
 	if err != nil {
 		log.Panic(err)
 	}
 
 	for {
 		select {
-		case m, _ := <-consumer.Messages():
-			log.Debug("Got record for domain ", string(m.Key))
+		case m, _ := <-partitionConsumer.Messages():
+			log.Info("Got record for domain ", string(m.Key))
 			metrics <- ms.NewMetric("nb-record", nil, nil, time.Now(), ms.Counter)
 
 			if s.Index(string(m.Key), "*") != -1 {
@@ -78,14 +81,9 @@ func launchReader(db *bolt.DB, config KafkaConfig, metrics chan ms.Metric) {
 
 				return nil
 			})
-
-		case err := <-consumer.Errors():
+		case err := <-partitionConsumer.Errors():
 			metrics <- ms.NewMetric("kafka-consumer", nil, nil, time.Now(), ms.Counter)
 			log.WithError(err).Error("Kafka consumer error")
-
-		case notif := <-consumer.Notifications():
-			log.Info(fmt.Sprintf("%+v", notif))
-
 		}
 	}
 
