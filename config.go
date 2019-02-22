@@ -13,8 +13,12 @@ type Config struct {
 }
 
 type KafkaConfig struct {
-	Address []string
-	Topic   string
+	Address    []string
+	Topic      string
+	SaslEnable bool
+	TlsEnable  bool
+	User       string
+	Password   string
 }
 
 type DnsConfig struct {
