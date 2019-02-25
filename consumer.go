@@ -1,57 +1,102 @@
 package main
 
 import (
-//	"github.com/apache/pulsar/pulsar-client-go/pulsar"
-	"github.com/segmentio/kafka-go"
+	"time"
+
+	ms "stream-dns/metrics"
+
+	"github.com/Shopify/sarama"
+	"github.com/getsentry/raven-go"
+	log "github.com/sirupsen/logrus"
+	bolt "go.etcd.io/bbolt"
 )
 
 type consumer interface {
-	runConsumer()
+	Run(db *bolt.DB, metrics chan ms.Metric) error
 }
 
 type KafkaConsumer struct {
-	config KafkaConfig
-	client *kafka.Reader
+	config         KafkaConfig
+	configConsumer *sarama.Config
+	consumer       sarama.Consumer
 }
 
-func NewKafkaConsumer(config KafkaConfig) *KafkaConsumer {
-	client := kafka.NewReader(kafka.ReaderConfig{
-		Brokers:   config.Address,
-		Topic:     config.Topic,
-		Partition: 0,
-		MinBytes:  10e3, // 10KB
-		MaxBytes:  10e6, // 10MB
-	})
+func NewKafkaConsumer(config KafkaConfig) (*KafkaConsumer, error) {
+	configConsumer := sarama.NewConfig()
+	configConsumer.Consumer.Return.Errors = true
+	configConsumer.Net.SASL.Enable = false
+	configConsumer.Net.TLS.Enable = false
 
-	return &KafkaConsumer{
-		config,
-		client,
+	if config.SaslEnable {
+		configConsumer.Net.SASL.Enable = true
+		configConsumer.Net.SASL.User = config.User
+		configConsumer.Net.SASL.Password = config.Password
+		configConsumer.Net.SASL.Mechanism = "PLAIN" //TODO make this configurable
 	}
-}
 
-func (s KafkaConsumer) runConsumer() {
-
-}
-/*
-type PulsarConsumer struct {
-	config PulsarConfig
-	client pulsar.Client
-}
-
-func NewPulsarConsumer(config PulsarConfig) *PulsaConsumer {
-	client, err := pulsar.NewClient(pulsar.ClientOptions{
-		URL: config.Address,
-		OperationTimeoutSeconds: 5,
-		MessageListenerThreads: runtime.NumCPU(),
-	})
-
-	return &PulsarConsumer{
-		config,
-		client,
+	if config.TlsEnable {
+		configConsumer.Net.TLS.Enable = true
 	}
+
+	configConsumer.ClientID = "stream-dns.consumer"
+	configConsumer.Consumer.Offsets.CommitInterval = 10 * time.Second
+
+	brokers := config.Address
+
+	consumer, err := sarama.NewConsumer(brokers, configConsumer)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &KafkaConsumer{config, configConsumer, consumer}, nil
 }
 
-func (s PulsarConsumer) runConsumer() {
+// Run the kafka agent consumer which read all the records from the Kafka topics
+//Blocking call
+func (k *KafkaConsumer) Run(db *bolt.DB, metrics chan ms.Metric) error {
+	partitionConsumer, err := k.consumer.ConsumePartition(k.config.Topic, 0, sarama.OffsetOldest)
+	if err != nil {
+		return err
+	}
 
+	for {
+		select {
+		case m, _ := <-partitionConsumer.Messages():
+			log.Info("Got record for domain ", string(m.Key))
+			metrics <- ms.NewMetric("nb-record", nil, nil, time.Now(), ms.Counter)
+
+			err := registerRecordAsBytesWithTheKeyInDB(db, m.Key, m.Value)
+
+			if err != nil {
+				log.Error(err)
+				raven.CaptureError(err, nil)
+			}
+
+		case err := <-partitionConsumer.Errors():
+			metrics <- ms.NewMetric("kafka-consumer", nil, nil, time.Now(), ms.Counter)
+			log.WithError(err).Error("Kafka consumer error")
+		}
+	}
+
+	return nil
 }
-*/
+
+// Register a record from a consumer message e.g: kafka in the Bolt database
+func registerRecordAsBytesWithTheKeyInDB(db *bolt.DB, key []byte, record []byte) error {
+	return db.Update(func(tx *bolt.Tx) error {
+		b, err := tx.CreateBucketIfNotExists([]byte("records"))
+
+		if err != nil {
+			return nil
+		}
+
+		err = b.Put(key, record)
+
+		if err != nil {
+			return err
+		}
+
+		return nil
+	})
+}

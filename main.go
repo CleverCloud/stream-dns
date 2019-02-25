@@ -3,92 +3,18 @@ package main
 import (
 	"os"
 	"os/signal"
-	s "strings"
 	"syscall"
-	"time"
 
 	"stream-dns/agent"
 	ms "stream-dns/metrics"
 	"stream-dns/output"
 
-	"github.com/Shopify/sarama"
 	"github.com/getsentry/raven-go"
 	dns "github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 	bolt "go.etcd.io/bbolt"
 )
-
-func launchReader(db *bolt.DB, config KafkaConfig, metrics chan ms.Metric) {
-	log.Info("Read from kafka topic")
-
-	configConsumer := sarama.NewConfig()
-	configConsumer.Consumer.Return.Errors = true
-	configConsumer.Net.SASL.Enable = false
-	configConsumer.Net.TLS.Enable = false
-
-	if config.SaslEnable {
-		configConsumer.Net.SASL.Enable = true
-		configConsumer.Net.SASL.User = config.User
-		configConsumer.Net.SASL.Password = config.Password
-		configConsumer.Net.SASL.Mechanism = "PLAIN" //TODO make this configurable
-	}
-
-	if config.TlsEnable {
-		configConsumer.Net.TLS.Enable = true
-	}
-
-	configConsumer.ClientID = "stream-dns.consumer"
-	configConsumer.Consumer.Offsets.CommitInterval = 10 * time.Second
-
-	brokers := config.Address
-
-	consumer, err := sarama.NewConsumer(brokers, configConsumer)
-	if err != nil {
-		log.Panic(err)
-	}
-
-	partitionConsumer, err := consumer.ConsumePartition(config.Topic, 0, sarama.OffsetOldest)
-	if err != nil {
-		log.Panic(err)
-	}
-
-	for {
-		select {
-		case m, _ := <-partitionConsumer.Messages():
-			log.Info("Got record for domain ", string(m.Key))
-			metrics <- ms.NewMetric("nb-record", nil, nil, time.Now(), ms.Counter)
-
-			if s.Index(string(m.Key), "*") != -1 {
-				log.Printf("message at topic/partition/offset %v/%v/%v: %s = %s\n", m.Topic, m.Partition, m.Offset, string(m.Key), string(m.Value))
-			}
-			db.Update(func(tx *bolt.Tx) error {
-				b, err := tx.CreateBucketIfNotExists([]byte("records"))
-
-				if err != nil {
-					raven.CaptureError(err, nil)
-					log.Fatal(err)
-				}
-
-				err = b.Put(m.Key, m.Value)
-
-				if err != nil {
-					raven.CaptureError(err, nil)
-					log.Fatal(err)
-
-					return err
-				}
-
-				return nil
-			})
-		case err := <-partitionConsumer.Errors():
-			metrics <- ms.NewMetric("kafka-consumer", nil, nil, time.Now(), ms.Counter)
-			log.WithError(err).Error("Kafka consumer error")
-		}
-	}
-
-	defer db.Close()
-}
 
 func serve(db *bolt.DB, config DnsConfig, metrics chan ms.Metric) {
 	registerHandlerForResolver(".", db, config.ResolverAddress, metrics)
@@ -109,17 +35,17 @@ func serve(db *bolt.DB, config DnsConfig, metrics chan ms.Metric) {
 
 func main() {
 	viper.SetEnvPrefix("DNS") // Avoid collisions with others env variables
-	viper.AllowEmptyEnv(false)
 	viper.AutomaticEnv()
+	viper.AllowEmptyEnv(false)
 
 	config := Config{
 		KafkaConfig{
-			Address: viper.GetStringSlice("kafka_address"),
-			Topic: viper.GetString("kafka_topic"),
+			Address:    viper.GetStringSlice("kafka_address"),
+			Topic:      viper.GetString("kafka_topic"),
 			SaslEnable: viper.GetBool("sasl_enable"),
-			TlsEnable: viper.GetBool("tls_enable"),
-			User: viper.GetString("kafka_user"),
-			Password: viper.GetString("kafka_password"),
+			TlsEnable:  viper.GetBool("tls_enable"),
+			User:       viper.GetString("kafka_user"),
+			Password:   viper.GetString("kafka_password"),
 		},
 		DnsConfig{
 			viper.GetString("address"),
@@ -145,7 +71,7 @@ func main() {
 	db, err := bolt.Open(config.PathDB, 0600, nil)
 	if err != nil {
 		raven.CaptureError(err, map[string]string{"step": "init"})
-		log.Fatal(err)
+		log.Fatal("database ", config.PathDB, err.Error(), "\nSet the environment variable: DNS_PATHDB")
 	}
 
 	// Metrics
@@ -155,11 +81,20 @@ func main() {
 	go agent.Run()
 
 	// Run goroutines service
-	go launchReader(db, config.Kafka, agent.Input)
+	kafkaConsumer, err := NewKafkaConsumer(config.Kafka)
+
+	if err != nil {
+		log.Panic(err)
+		raven.CaptureError(err, nil)
+	}
+
+	go kafkaConsumer.Run(db, agent.Input)
+
 	go serve(db, config.Dns, agent.Input)
 
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	s := <-sig
 
+	db.Close()
 	log.WithFields(log.Fields{"signal": s}).Info("Signal received, stopping")
 }
