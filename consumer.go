@@ -28,6 +28,7 @@ func NewKafkaConsumer(config KafkaConfig) (*KafkaConsumer, error) {
 	configConsumer.Net.TLS.Enable = false
 
 	if config.SaslEnable {
+		log.Info("SASL enabled for the consumer: ", config.Address)
 		configConsumer.Net.SASL.Enable = true
 		configConsumer.Net.SASL.User = config.User
 		configConsumer.Net.SASL.Password = config.Password
@@ -35,6 +36,7 @@ func NewKafkaConsumer(config KafkaConfig) (*KafkaConsumer, error) {
 	}
 
 	if config.TlsEnable {
+		log.Info("TLS enabled for the consumer: ", config.Address)
 		configConsumer.Net.TLS.Enable = true
 	}
 
@@ -60,6 +62,8 @@ func (k *KafkaConsumer) Run(db *bolt.DB, metrics chan ms.Metric) error {
 		return err
 	}
 
+	log.Info("Kafka consumer connected to the kafka nodes: ", k.config.Address, " and ready to consume")
+
 	for {
 		select {
 		case m, _ := <-partitionConsumer.Messages():
@@ -69,7 +73,7 @@ func (k *KafkaConsumer) Run(db *bolt.DB, metrics chan ms.Metric) error {
 			err := registerRecordAsBytesWithTheKeyInDB(db, m.Key, m.Value)
 
 			if err != nil {
-				log.Error(err)
+				log.WithError(err).Error(err)
 				raven.CaptureError(err, nil)
 			}
 
