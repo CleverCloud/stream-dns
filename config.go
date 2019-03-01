@@ -24,6 +24,7 @@ type KafkaConfig struct {
 	TlsEnable  bool
 	User       string
 	Password   string
+	Mechanism  string
 }
 
 type DnsConfig struct {

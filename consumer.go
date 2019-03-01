@@ -32,7 +32,7 @@ func NewKafkaConsumer(config KafkaConfig) (*KafkaConsumer, error) {
 		configConsumer.Net.SASL.Enable = true
 		configConsumer.Net.SASL.User = config.User
 		configConsumer.Net.SASL.Password = config.Password
-		configConsumer.Net.SASL.Mechanism = "PLAIN" //TODO make this configurable
+		configConsumer.Net.SASL.Mechanism = sarama.SASLMechanism(config.Mechanism)
 	}
 
 	if config.TlsEnable {

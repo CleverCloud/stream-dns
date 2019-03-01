@@ -42,10 +42,11 @@ func main() {
 		KafkaConfig{
 			Address:    viper.GetStringSlice("kafka_address"),
 			Topic:      viper.GetString("kafka_topic"),
-			SaslEnable: viper.GetBool("sasl_enable"),
-			TlsEnable:  viper.GetBool("tls_enable"),
+			SaslEnable: viper.GetBool("kafka_sasl_enable"),
+			TlsEnable:  viper.GetBool("kafka_tls_enable"),
 			User:       viper.GetString("kafka_user"),
 			Password:   viper.GetString("kafka_password"),
+			Mechanism:  viper.GetString("kafka_sasl_mechanism"),
 		},
 		DnsConfig{
 			viper.GetString("address"),
