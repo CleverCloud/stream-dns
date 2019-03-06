@@ -19,7 +19,7 @@ type PulsarConfig struct {
 
 type KafkaConfig struct {
 	Address    []string
-	Topic      string
+	Topics     []string
 	SaslEnable bool
 	TlsEnable  bool
 	User       string

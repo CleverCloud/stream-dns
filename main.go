@@ -41,7 +41,7 @@ func main() {
 	config := Config{
 		KafkaConfig{
 			Address:    viper.GetStringSlice("kafka_address"),
-			Topic:      viper.GetString("kafka_topic"),
+			Topics:     viper.GetStringSlice("kafka_topics"),
 			SaslEnable: viper.GetBool("kafka_sasl_enable"),
 			TlsEnable:  viper.GetBool("kafka_tls_enable"),
 			User:       viper.GetString("kafka_user"),
