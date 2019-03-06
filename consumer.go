@@ -43,6 +43,7 @@ func NewKafkaConsumer(config KafkaConfig) (*KafkaConsumer, error) {
 	}
 
 	configConsumer.ClientID = "stream-dns.consumer"
+	configConsumer.Consumer.Offsets.Initial = sarama.OffsetOldest
 	configConsumer.Consumer.Offsets.CommitInterval = 10 * time.Second
 
 	brokers := config.Address
@@ -64,7 +65,7 @@ func (k *KafkaConsumer) Run(db *bolt.DB, metrics chan ms.Metric) error {
 
 	for {
 		select {
-		case m, _ := <-k.consumer.Messages():
+		case m, ok := <-k.consumer.Messages():
 			log.Info("Got record for domain: ", string(m.Key))
 			metrics <- ms.NewMetric("nb-record", nil, nil, time.Now(), ms.Counter)
 
@@ -73,6 +74,10 @@ func (k *KafkaConsumer) Run(db *bolt.DB, metrics chan ms.Metric) error {
 			if err != nil {
 				log.WithError(err).Error(err)
 				raven.CaptureError(err, nil)
+			}
+
+			if !ok {
+				continue
 			}
 
 		case err := <-k.consumer.Errors():
