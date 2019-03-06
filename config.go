@@ -8,8 +8,14 @@ type Config struct {
 	Kafka     KafkaConfig
 	Dns       DnsConfig
 	Agent     AgentConfig
+	Statsd    StatsdConfig
 	PathDB    string
 	sentryDSN string
+}
+
+type StatsdConfig struct {
+	Address string
+	Prefix  string // can be empty
 }
 
 type PulsarConfig struct {
