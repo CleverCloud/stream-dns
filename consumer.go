@@ -4,8 +4,10 @@ import (
 	"time"
 
 	ms "stream-dns/metrics"
+	u "stream-dns/utils"
 
 	"github.com/Shopify/sarama"
+	cluster "github.com/bsm/sarama-cluster"
 	"github.com/getsentry/raven-go"
 	log "github.com/sirupsen/logrus"
 	bolt "go.etcd.io/bbolt"
@@ -17,12 +19,12 @@ type consumer interface {
 
 type KafkaConsumer struct {
 	config         KafkaConfig
-	configConsumer *sarama.Config
-	consumer       sarama.Consumer
+	configConsumer *cluster.Config
+	consumer       *cluster.Consumer
 }
 
 func NewKafkaConsumer(config KafkaConfig) (*KafkaConsumer, error) {
-	configConsumer := sarama.NewConfig()
+	configConsumer := cluster.NewConfig()
 	configConsumer.Consumer.Return.Errors = true
 	configConsumer.Net.SASL.Enable = false
 	configConsumer.Net.TLS.Enable = false
@@ -44,9 +46,10 @@ func NewKafkaConsumer(config KafkaConfig) (*KafkaConsumer, error) {
 	configConsumer.Consumer.Offsets.CommitInterval = 10 * time.Second
 
 	brokers := config.Address
+	topics := config.Topics
+	consumerGroup := "stream-dns" + u.RandString(10)
 
-	consumer, err := sarama.NewConsumer(brokers, configConsumer)
-
+	consumer, err := cluster.NewConsumer(brokers, consumerGroup, topics, configConsumer)
 	if err != nil {
 		return nil, err
 	}
@@ -55,19 +58,14 @@ func NewKafkaConsumer(config KafkaConfig) (*KafkaConsumer, error) {
 }
 
 // Run the kafka agent consumer which read all the records from the Kafka topics
-//Blocking call
+// Blocking call
 func (k *KafkaConsumer) Run(db *bolt.DB, metrics chan ms.Metric) error {
-	partitionConsumer, err := k.consumer.ConsumePartition(k.config.Topic, 0, sarama.OffsetOldest)
-	if err != nil {
-		return err
-	}
-
 	log.Info("Kafka consumer connected to the kafka nodes: ", k.config.Address, " and ready to consume")
 
 	for {
 		select {
-		case m, _ := <-partitionConsumer.Messages():
-			log.Info("Got record for domain ", string(m.Key))
+		case m, _ := <-k.consumer.Messages():
+			log.Info("Got record for domain: ", string(m.Key))
 			metrics <- ms.NewMetric("nb-record", nil, nil, time.Now(), ms.Counter)
 
 			err := registerRecordAsBytesWithTheKeyInDB(db, m.Key, m.Value)
@@ -77,12 +75,13 @@ func (k *KafkaConsumer) Run(db *bolt.DB, metrics chan ms.Metric) error {
 				raven.CaptureError(err, nil)
 			}
 
-		case err := <-partitionConsumer.Errors():
+		case err := <-k.consumer.Errors():
 			metrics <- ms.NewMetric("kafka-consumer", nil, nil, time.Now(), ms.Counter)
 			log.WithError(err).Error("Kafka consumer error")
 		}
 	}
 
+	k.consumer.Close()
 	return nil
 }
 
