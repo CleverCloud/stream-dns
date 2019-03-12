@@ -59,6 +59,10 @@ func main() {
 			viper.GetInt("metrics_buffer_size"),
 			viper.GetDuration("metrics_flush_interval"),
 		},
+		StatsdConfig{
+			viper.GetString("statsd_address"),
+			viper.GetString("statsd_prefix"),
+		},
 		viper.GetString("pathdb"),
 		viper.GetString("sentry_dsn"),
 	}
@@ -77,7 +81,14 @@ func main() {
 
 	// Metrics
 	agent := agent.NewAgent(agent.Config{config.Agent.BufferSize, config.Agent.FlushInterval})
-	agent.AddOutput(output.StdoutOutput{})
+
+	// Outputs agent
+
+	// Setup Statsd is config exist
+	if config.Statsd.Address != "" {
+		statsdOutput := output.NewStatsdOutput(config.Statsd.Address, config.Statsd.Prefix)
+		agent.AddOutput(statsdOutput)
+	}
 
 	go agent.Run()
 
