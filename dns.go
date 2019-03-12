@@ -99,7 +99,7 @@ func registerHandlerForResolver(pattern string, db *bolt.DB, address string, met
 			answers, err := resolverLookup(address, qname, qtype)
 
 			if err != nil {
-				metrics <- ms.NewMetric("resolver error", nil, nil, time.Now(), ms.Counter)
+				metrics <- ms.NewMetric("resolver-error", nil, nil, time.Now(), ms.Counter)
 				raven.CaptureError(err, map[string]string{"unit": "dns"})
 				log.Fatal("[resolver] ", err)
 				m.SetRcode(r, dns.RcodeServerFailure)
