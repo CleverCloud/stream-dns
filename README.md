@@ -92,19 +92,21 @@ dig @localhost -p 8053 axfr zonetransfer.me
 This services use environment variables for it's configuration.
 The following env variables are needed:
 
-| Variable                         | Type           | Description                                                                                     |
-|----------------------------------|----------------|-------------------------------------------------------------------------------------------------|
-| DNS_ADDRESS                      | string         | Address for the DNS server e.g: ":8053"                                                         |
-| DNS_TCP                          | bool           | Accept TCP DNS connection                                                                       |
-| DNS_UDP                          | bool           | Accept UDP DNS connection                                                                       |
-| DNS_RESOLVER_ADDRESS             | string         | Address use to resolve unsupported zone                                                         |
-| DNS_ZONES                        | List of string | List of supported zones e.g: "clvrcld.net. services.clever-cloud.com." (separate by whitespace) |
-| DNS_KAFKA_ADDRESS                | string         | Address of one kafka node e.g: "localhost:9092"                                                 |
-| DNS_KAFKA_TOPIC                  | string         | Kafka topic of the records                                                                      |
-| DNS_AGENT_METRICS_BUFFER_SIZE    | int            | Size of the metrics buffer in bytes                                                             |
-| DNS_AGENT_METRICS_FLUSH_INTERVAL | int            | Flushing interval of the metrics                                                                |
-| DNS_PATHDB                       | string         | Path of the bbolt database e.g: "/tmp/my.db"                                                    |
-| DNS_SENTRY_DSN                   | string         | DSN to the sentry project e.g: "https://<key>:<secret>@sentry.io/<project>"                     |
+| Variable                   | Type           | Description                                                                                     |
+| DNS_ADDRESS                | string         | Address for the DNS server e.g: ":8053"                                                         |
+|----------------------------|----------------|-------------------------------------------------------------------------------------------------|
+| DNS_TCP                    | bool           | Accept TCP DNS connection                                                                       |
+| DNS_UDP                    | bool           | Accept UDP DNS connection                                                                       |
+| DNS_RESOLVER_ADDRESS       | string         | Address use to resolve unsupported zone                                                         |
+| DNS_ZONES                  | List of string | List of supported zones e.g: "clvrcld.net. services.clever-cloud.com." (separate by whitespace) |
+| DNS_KAFKA_ADDRESS          | string         | Address of one kafka node e.g: "localhost:9092"                                                 |
+| DNS_KAFKA_TOPIC            | string         | Kafka topic of the records                                                                      |
+| DNS_METRICS_BUFFER_SIZE    | int            | Size of the metrics buffer in bytes                                                             |
+| DNS_METRICS_FLUSH_INTERVAL | int            | Flushing interval of the metrics                                                                |
+| DNS_PATHDB                 | string         | Path of the bbolt database e.g: "/tmp/my.db"                                                    |
+| DNS_SENTRY_DSN             | string         | DSN to the sentry project e.g: "https://<key>:<secret>@sentry.io/<project>"                     |
+| DNS_STATSD_ADDRESS         | string         | Address use to output the metrics in a statd format e.g: "127.0.0.1:8125"                       |
+| DNS_STATSD_PREFIX          | string         | (optional) Add a prefix on statd field metric                                                   |
 
 ## Tools
 
@@ -127,6 +129,11 @@ A Kafka producer to register custom record in the Kafka
 Build: `go install kafka-dns/tools/producer`
 Usage: `producer name type content ttl priority`
 Run: `$GOPATH/bin/producer yolo.com A 2.4.4.6 3600 0`
+
+### Metrics
+
+To test the metrics system you can use the `statsd` output. You just have to configure this by setting two env variables: `DNS_STATSD_ADDRESS`, `DNS_STATSD_PREFIX`.
+You can use [Cernan](https://github.com/postmates/cernan), a telemetry and logging aggregation server for a dev environment.
 
 ## Continuous integration
 
