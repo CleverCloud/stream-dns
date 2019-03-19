@@ -1,9 +1,10 @@
 package utils
 
 import (
+	"testing"
+
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
-	"testing"
 )
 
 func TestShouldDetectACorrectApexDomain(t *testing.T) {
@@ -12,6 +13,11 @@ func TestShouldDetectACorrectApexDomain(t *testing.T) {
 
 func TestShouldDetectThatDomainWithSubdomainOrNotApexDomain(t *testing.T) {
 	assert.False(t, IsApexDomain("www.example.com"))
+}
+
+func TestShouldDetectIfDomainHasSubDomain(t *testing.T) {
+	assert.False(t, IsSubdomain("example.com"))
+	assert.True(t, IsSubdomain("www.example.com"))
 }
 
 func TestExtractQnameAndQtypeFromConsumerKey(t *testing.T) {

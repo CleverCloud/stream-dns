@@ -29,6 +29,10 @@ func IsApexDomain(domain string) bool {
 	return strings.Count(domain, ".") == 1
 }
 
+func IsSubdomain(domain string) bool {
+	return strings.Count(domain, ".") > 1
+}
+
 // Extract the qname and qtype from the key
 // e.g: key has the format: <qname>.|<qtype>
 // NOTE: the qname will keep the trailing dot, use the method TrimTrailingDotsInDomain to remove it
