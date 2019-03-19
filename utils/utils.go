@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"strings"
 	"math/rand"
 )
 
@@ -18,3 +19,9 @@ func RandString(length int) string {
 	return string(b)
 }
 
+// An Apex domain, is a root domain that does not contain a subdomain.
+// Our (simple) strategy to detect if it's an APEX is to count the number of dot.
+func isApexDomain(domain string) bool {
+	// We must just have more than one dot if we have subdomains
+	return strings.Count(domain, ".") == 1
+}
