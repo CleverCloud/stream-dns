@@ -2,6 +2,7 @@ package main
 
 import (
 	"time"
+	"errors"
 
 	ms "stream-dns/metrics"
 	u "stream-dns/utils"
@@ -9,6 +10,7 @@ import (
 	"github.com/Shopify/sarama"
 	cluster "github.com/bsm/sarama-cluster"
 	"github.com/getsentry/raven-go"
+	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 	bolt "go.etcd.io/bbolt"
 )
@@ -60,7 +62,7 @@ func NewKafkaConsumer(config KafkaConfig) (*KafkaConsumer, error) {
 
 // Run the kafka agent consumer which read all the records from the Kafka topics
 // Blocking call
-func (k *KafkaConsumer) Run(db *bolt.DB, metrics chan ms.Metric) error {
+func (k *KafkaConsumer) Run(db *bolt.DB, metrics chan ms.Metric, disallowCnameOnApex bool) error {
 	log.Info("Kafka consumer connected to the kafka nodes: ", k.config.Address, " and ready to consume")
 
 	for {
@@ -69,7 +71,7 @@ func (k *KafkaConsumer) Run(db *bolt.DB, metrics chan ms.Metric) error {
 			log.Info("Got record for domain: ", string(m.Key))
 			metrics <- ms.NewMetric("nb-record", nil, nil, time.Now(), ms.Counter)
 
-			err := registerRecordAsBytesWithTheKeyInDB(db, m.Key, m.Value)
+			err := registerRecordAsBytesWithTheKeyInDB(db, m.Key, m.Value, disallowCnameOnApex)
 
 			if err != nil {
 				log.WithError(err).Error(err)
@@ -91,12 +93,38 @@ func (k *KafkaConsumer) Run(db *bolt.DB, metrics chan ms.Metric) error {
 }
 
 // Register a record from a consumer message e.g: kafka in the Bolt database
-func registerRecordAsBytesWithTheKeyInDB(db *bolt.DB, key []byte, record []byte) error {
+func registerRecordAsBytesWithTheKeyInDB(db *bolt.DB, key []byte, record []byte, disallowCnameOnApex bool) error {
+	domain, qtype := u.ExtractQnameAndQtypeFromConsumerKey(key)
+
+	if disallowCnameOnApex && isCnameOnApexDomain(key) {
+		log.Error("Can't register the domain: ", domain, "\tCNAME on APEX domain are disallow.\nYou must define at true the env variable DISALLOW_CNAME_ON_APEX to allow it")
+		return errors.New("can't register CNAME on APEX domain")
+	}
+
 	return db.Update(func(tx *bolt.Tx) error {
 		b, err := tx.CreateBucketIfNotExists([]byte("records"))
 
 		if err != nil {
 			return nil
+		}
+
+		if u.IsSubdomain(domain) {
+			// On subdomains: when CNAME already exists: allow only new CNAME.
+			if b.Get([]byte(domain+".|CNAME")) != nil && qtype != dns.TypeCNAME {
+				log.Error("Can't update the domain value: ", domain, "\ta CNAME already exists")
+				return errors.New("can't update the domain a CNAME already exists")
+			}
+
+			// On subdomains: when a CNAME comes, remove all previous records and replace with CNAME.
+			if qtype == dns.TypeCNAME {
+				// Keep the values in cache to rollback in case of error during register the CNAME
+				// FIXME: register the value in a backup before delete it to recover them in the case of the PUT fail
+				b.Delete([]byte(domain + ".|" + dns.TypeToString[dns.TypeA]))
+				b.Delete([]byte(domain + ".|" + dns.TypeToString[dns.TypeAAAA]))
+				b.Delete([]byte(domain + ".|" + dns.TypeToString[dns.TypeTXT]))
+				b.Delete([]byte(domain + ".|" + dns.TypeToString[dns.TypePTR]))
+				b.Delete([]byte(domain + ".|" + dns.TypeToString[dns.TypeMX]))
+			}
 		}
 
 		err = b.Put(key, record)
@@ -107,4 +135,9 @@ func registerRecordAsBytesWithTheKeyInDB(db *bolt.DB, key []byte, record []byte)
 
 		return nil
 	})
+}
+
+func isCnameOnApexDomain(key []byte) bool {
+	domain, qtype := u.ExtractQnameAndQtypeFromConsumerKey(key)
+	return u.IsApexDomain(domain) && dns.TypeCNAME == qtype
 }

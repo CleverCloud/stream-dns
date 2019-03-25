@@ -5,12 +5,13 @@ import (
 )
 
 type Config struct {
-	Kafka     KafkaConfig
-	Dns       DnsConfig
-	Agent     AgentConfig
-	Statsd    StatsdConfig
-	PathDB    string
-	sentryDSN string
+	Kafka               KafkaConfig
+	Dns                 DnsConfig
+	Agent               AgentConfig
+	Statsd              StatsdConfig
+	PathDB              string
+	sentryDSN           string
+	DisallowCNAMEonAPEX bool
 }
 
 type StatsdConfig struct {

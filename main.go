@@ -65,6 +65,7 @@ func main() {
 		},
 		viper.GetString("pathdb"),
 		viper.GetString("sentry_dsn"),
+		viper.GetBool("disallow_cname_on_apex"),
 	}
 
 	// Sentry
@@ -100,7 +101,7 @@ func main() {
 		raven.CaptureError(err, nil)
 	}
 
-	go kafkaConsumer.Run(db, agent.Input)
+	go kafkaConsumer.Run(db, agent.Input, config.DisallowCNAMEonAPEX)
 
 	go serve(db, config.Dns, agent.Input)
 
