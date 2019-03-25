@@ -157,8 +157,8 @@ func (suite *DnsQuerySuite) TestShouldHandleAxfrQuery() {
 		[]Record{Record{"zonetransfer.me.", "SOA", "1.1.1.1 2017042001 172800 900 1209600 3600", 3600, 0}},
 		[]Record{Record{"zonetransfer.me.", "NS", "nsztm1.digi.ninja.", 1200, 0}},
 		[]Record{Record{"foo.zonetransfer.me.", "A", "202.14.81.230", 1200, 0}},
-		[]Record{Record{"bar.zonetransfer.me.", "AAAA", "143.228.181.132", 1200, 0}},
-		[]Record{Record{"unknown.me.", "AAAA", "143.228.181.132", 1200, 0}},
+		[]Record{Record{"bar.zonetransfer.me.", "AAAA", "2001:db8:0:85a3:0:0:ac1f:8001", 1200, 0}},
+		[]Record{Record{"unknown.me.", "AAAA", "2001:db8:0:85a3:0:0:ac1f:8001", 1200, 0}},
 	}
 
 	seedDBwithRecords(suite.DB, axfrRecords)

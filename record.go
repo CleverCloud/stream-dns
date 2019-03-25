@@ -79,7 +79,6 @@ func RecordToAnswer(record Record) dns.RR {
 
 func RecordsToAnswer(records []Record) []dns.RR {
 	var rrs []dns.RR
-
 	for _, record := range records {
 		rrs = append(rrs, RecordToAnswer(record))
 	}
