@@ -2,6 +2,7 @@ package main
 
 import (
 	"time"
+	"errors"
 
 	ms "stream-dns/metrics"
 	u "stream-dns/utils"
@@ -97,7 +98,7 @@ func registerRecordAsBytesWithTheKeyInDB(db *bolt.DB, key []byte, record []byte,
 
 	if disallowCnameOnApex && isCnameOnApexDomain(key) {
 		log.Error("Can't register the domain: ", domain, "\tCNAME on APEX domain are disallow.\nYou must define at true the env variable DISALLOW_CNAME_ON_APEX to allow it")
-		return nil // FIXME: maybe we should return an error instead of nil but that need to change the behavior of top method
+		return errors.New("can't register CNAME on APEX domain")
 	}
 
 	return db.Update(func(tx *bolt.Tx) error {
@@ -111,7 +112,7 @@ func registerRecordAsBytesWithTheKeyInDB(db *bolt.DB, key []byte, record []byte,
 			// On subdomains: when CNAME already exists: allow only new CNAME.
 			if b.Get([]byte(domain+".|CNAME")) != nil && qtype != dns.TypeCNAME {
 				log.Error("Can't update the domain value: ", domain, "\ta CNAME already exists")
-				return nil
+				return errors.New("can't update the domain a CNAME already exists")
 			}
 
 			// On subdomains: when a CNAME comes, remove all previous records and replace with CNAME.
