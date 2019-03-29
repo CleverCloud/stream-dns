@@ -1,9 +1,10 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
-	"encoding/json"
 
 	u "stream-dns/utils"
 
@@ -37,6 +38,7 @@ func (h *HttpAdministrator) StartHttpAdministrator() error {
 		return err
 	}
 
+	log.Info("Administrator running on ", fmt.Sprintf("http://%s", h.address))
 	return nil
 }
 
