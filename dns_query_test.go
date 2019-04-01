@@ -125,6 +125,51 @@ func (suite *DnsQuerySuite) TestShouldHandleQueryForManagedZone() {
 	}
 }
 
+func (suite *DnsQuerySuite) TestShouldHandleQueryWithRecursionOnCNAME() {
+	var records = [][]Record{
+		[]Record{Record{"test.com.", "A", "148.171.11.12", 0, 0}, Record{"test.com.", "A", "163.172.235.159", 0, 0}},
+		[]Record{Record{"sub.test.com.", "CNAME", "test.com.", 0, 0}},
+		[]Record{Record{"sub.sub.test.com.", "CNAME", "sub.test.com.", 0, 0}},
+		[]Record{Record{"sub.sub.sub.test.com.", "CNAME", "sub.sub.test.com.", 0, 0}},		
+	}
+
+	seedDBwithRecords(suite.DB, records)
+
+	mockAgent := NewMockAgent()
+	go mockAgent.Run()
+	dnsConfig := DnsConfig{":8053", true, false, []string{"test.com"}, "9.9.9.9"}
+	go serve(suite.DB, dnsConfig, mockAgent.Input)
+
+	// Avoid connection refused because the DNS server is not ready
+	// FIXME: I tried to set the Timeout + Dialtimeout for the client
+	// but that seem's to have no effect
+	time.Sleep(100 * time.Millisecond)
+
+	client := new(dns.Client)
+	m := new(dns.Msg)
+
+	m.Question = append(m.Question, dns.Question{"sub.sub.sub.test.com.", dns.TypeA, dns.ClassINET})
+	m.RecursionDesired = true
+
+	r, _, err := client.Exchange(m, "127.0.0.1:8053")
+
+	if err != nil {
+		fmt.Printf("%s", err.Error())
+		suite.Fail("error on exchange")
+	}
+
+	if r.Rcode != dns.RcodeSuccess {
+		suite.Fail(" *** invalid answer name")
+	}
+
+	suite.True(answerEqualToRecord(r.Answer[0], records[3][0])) // sub.sub.sub.test.com
+	suite.True(answerEqualToRecord(r.Answer[1], records[2][0])) // sub.sub.test.com
+	suite.True(answerEqualToRecord(r.Answer[2], records[1][0])) // sub.test.com
+
+	suite.True(answerEqualToRecord(r.Answer[3], records[0][0])) // test.com
+	suite.True(answerEqualToRecord(r.Answer[4], records[0][1])) // test.com
+}
+
 func (suite *DnsQuerySuite) TestShouldHandleTheQueryWithTheResolver() {
 	mockAgent := NewMockAgent()
 	go mockAgent.Run()
