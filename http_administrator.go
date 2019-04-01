@@ -31,6 +31,7 @@ func NewHttpAdministrator(db *bolt.DB, address string) *HttpAdministrator {
 }
 
 func (h *HttpAdministrator) StartHttpAdministrator() error {
+	log.Info("Administrator running on ", fmt.Sprintf("http://%s", h.address))
 	err := http.ListenAndServe(h.address, h.servermux)
 
 	if err != nil {
@@ -38,7 +39,6 @@ func (h *HttpAdministrator) StartHttpAdministrator() error {
 		return err
 	}
 
-	log.Info("Administrator running on ", fmt.Sprintf("http://%s", h.address))
 	return nil
 }
 
