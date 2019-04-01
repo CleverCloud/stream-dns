@@ -18,7 +18,7 @@ Overview of the DNS server components:
 
 ``` mermaid
 graph TD
-Kafka -.->|dns record/json| D
+Consumer -.->|dns record/json| D
 D(dns serveur) --- A
 D --- B(bbolt)
 C[client dns] -- query --> D
@@ -32,7 +32,7 @@ O -.-> Warp10
 The project use Go 1.11 [Modules](https://github.com/golang/go/wiki/Modules) to resolve his dependencies. So make sure you have the env variable GO111MODULE set to `on` or `auto`.
 You have two way to build this program:
 
-*Recommanded:* `$ go install kafka-dns` (The binary output will be place in the directory `$GOPATH/bin`)
+*Recommanded:* `$ go install stream-dns` (The binary output will be place in the directory `$GOPATH/bin`)
 
 or
 
@@ -52,11 +52,11 @@ NOTE: Don't forget to setup your [$GOPATH](https://golang.org/doc/code.html#GOPA
 - Run the nodeJS migration script: [clever-cloud/migration-powerdns-pg-to-kafka](https://gitlab.corp.clever-cloud.com/clever-cloud/migration-powerdns-pg-to-kafka)
 - (optional) Set the connection URI of the powerdns follower in the PG_CON env variable (optional)
 - configure the project by using a `.env` file (more info § configuration)
-- run the command `bin/kafka-dns`
+- run the command `bin/stream-dns`
 
-### Production mode (WIP)
+### Production mode
 
-`systemctl start kafka-dns`
+`systemctl start stream-dns`
 
 ### Test suites
 
@@ -107,6 +107,8 @@ The following env variables are needed:
 | DNS_SENTRY_DSN             | string         | DSN to the sentry project e.g: "https://<key>:<secret>@sentry.io/<project>"                     |
 | DNS_STATSD_ADDRESS         | string         | Address use to output the metrics in a statd format e.g: "127.0.0.1:8125"                       |
 | DNS_STATSD_PREFIX          | string         | (optional) Add a prefix on statd field metric                                                   |
+| DNS_DISALLOW_CNAME_ON_APEX | bool           | (optional) Disallow CNAME on a APEX domain                                                      |
+| DNS_ADMINISTRATOR_ADDRESS  | string         | (optional) Address use by the HTTP administrator                                                |
 
 ## Tools
 
