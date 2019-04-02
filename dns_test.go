@@ -214,6 +214,27 @@ func (suite *DnsTestSuite) TestShouldFilterRecordByQtypeOrCname() {
 	suite.Equal("CNAME", cnameRecords[0].Type)
 }
 
+func (suite *DnsTestSuite) TestShouldRecurseOnCNAME() {
+	var records = [][]Record{
+		[]Record{Record{"test.com.", "A", "148.171.11.12", 0, 0}, Record{"test.com.", "A", "163.172.235.159", 0, 0}},
+		[]Record{Record{"sub.test.com.", "CNAME", "test.com.", 0, 0}},
+		[]Record{Record{"sub.sub.test.com.", "CNAME", "sub.test.com.", 0, 0}},
+	}
+
+	seedDBwithRecords(suite.DB, records)
+
+	suite.DB.View(func(tx *bolt.Tx) error {
+		recordsBucket := tx.Bucket([]byte("records"))
+		res := recursionOnCname(recordsBucket, Record{"sub.sub.test.com.", "CNAME", "sub.test.com.", 0, 0})
+
+
+		suite.Equal(2, len(res))
+		suite.Equal(records[1], res[0]) // sub.test.com -> test.com
+		suite.Equal(records[0], res[1]) // test.com
+		return nil
+	})
+}
+
 func TestDnsTestSuite(t *testing.T) {
 	suite.Run(t, new(DnsTestSuite))
 }

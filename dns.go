@@ -156,6 +156,55 @@ func registerHandlerForZone(zone string, db *bolt.DB, metrics chan ms.Metric) {
 	})
 }
 
+//FIXME: This algorithme is not optimal...We should improve this
+//First, we recurse on all CNAMEs until we Get a last domain wich is not a CNAME
+//We get all records prefixed by this last domain
+func recursionOnCname(b *bolt.Bucket, record Record) [][]Record {
+	var records [][]Record
+	tmp := record
+
+	// Recurse on chain of CNAME
+	for tmp.Type == dns.TypeToString[dns.TypeCNAME] {
+		v := b.Get([]byte(tmp.Content + "|" + dns.TypeToString[dns.TypeCNAME]))
+		if v != nil {
+			var recordTmp []Record
+			err := json.Unmarshal([]byte(v), &recordTmp)
+
+			if err != nil {
+				break // just abort and return what we have
+			}
+
+			records = append(records, recordTmp)
+
+			// We doesn't allow CNAME to point on multiples CNAMES
+			if len(recordTmp) == 1 && recordTmp[0].Type == dns.TypeToString[dns.TypeCNAME] {
+				//continue the recursion but register this CNAME
+				tmp = recordTmp[0]
+			}
+		} else {
+			// We don't have a concrete record in the DB
+			break
+		}
+	}
+
+	// Found the last concrete record: A, AAAA
+	c := b.Cursor()
+	prefix := []byte(tmp.Content)
+
+	for k, v := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, v = c.Next() {
+		var res []Record
+		err := json.Unmarshal([]byte(v), &res)
+
+		if err != nil {
+			log.Error("json.unmarshal on record", string(k))
+		}
+
+		records = append(records, res)
+	}
+
+	return records
+}
+
 func findRecordsAndSetAsAnswersInMessage(qname string, qtype uint16, db *bolt.DB, m *dns.Msg, r *dns.Msg, metrics chan ms.Metric) {
 	metrics <- ms.NewMetric("queries", nil, nil, time.Now(), ms.Counter)
 
@@ -165,19 +214,28 @@ func findRecordsAndSetAsAnswersInMessage(qname string, qtype uint16, db *bolt.DB
 
 		records, err := getRecordsFromBucket(recordsBucket, qname)
 
+		// recursion on CNAME
+		// We do a recursion only if we request a domain and we got only a CNAME has answer
+		if len(records) == 1 && len(records[0]) == 1 && records[0][0].Type == dns.TypeToString[dns.TypeCNAME] {
+			recordsFoundByRecursionOnCNAME := recursionOnCname(recordsBucket, records[0][0])
+			for _, r := range recordsFoundByRecursionOnCNAME {
+				records = append(records, r)
+			}
+		}
+
 		if err != nil {
 			raven.CaptureError(err, map[string]string{"unit": "dns", "action": "find records"})
 			return err
 		} else {
 			if len(records) > 0 {
 				for _, subRecords := range records {
-					filteredSubRecords := filterByQtypeAndCname(subRecords, qtype)
-					tmp := RecordsToAnswer(filteredSubRecords)
+					if qtype != dns.TypeCNAME {
+						subRecords = filterByQtypeAndCname(subRecords, qtype)
+					}
+					answers := RecordsToAnswer(subRecords)
 
-					for _, record := range tmp {
-						if isSameQtypeOrItsCname(qtype, record.Header().Rrtype) {
-							m.Answer = append(m.Answer, record)
-						}
+					for _, record := range answers {
+						m.Answer = append(m.Answer, record)
 					}
 				}
 			} else {
