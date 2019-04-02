@@ -103,7 +103,7 @@ func (r *Resolver) exchange(target string, server string, queryType QueryType) (
 	}
 
 	if err == nil && len(res.Answer) > 0 {
-		records = AnswersToRecord(target, queryType, res.Answer)
+		records = AnswersToRecord(target, res.Answer)
 	}
 
 	return records, err
@@ -130,26 +130,27 @@ func AddDefaultDNSPortIfIsNotDefine(server string) string {
 	return server
 }
 
-func AnswersToRecord(target string, queryType QueryType, answers []dns.RR) []Record {
+func AnswersToRecord(target string, answers []dns.RR) []Record {
 	records := []Record{}
 
 	for _, answer := range answers {
-		record := AnswerToRecord(target, queryType, answer)
+		record := AnswerToRecord(target, answer)
 		records = append(records, record)
 	}
 
 	return records
 }
 
-func AnswerToRecord(name string, queryType QueryType, answer dns.RR) Record {
+func AnswerToRecord(name string, answer dns.RR) Record {
+	rrtype := answer.Header().Rrtype
 	record := Record{
-		Name: name,
-		Type: dns.TypeToString[uint16(queryType)],
+		Name: answer.Header().Name,
+		Type: dns.TypeToString[rrtype],
 		Ttl:  int(answer.Header().Ttl),
 	}
 
 	// TODO support more type
-	switch uint16(queryType) {
+	switch uint16(rrtype) {
 	case dns.TypeA:
 		if a, ok := answer.(*dns.A); ok {
 			record.Content = a.A.String()
