@@ -1,100 +1,39 @@
-# Stream DNS
+[![Build Status](https://travis-ci.org/CleverCloud/stream-dns.svg?branch=master)](https://travis-ci.org/CleverCloud/stream-dns)
 
-A DNS server, written in Go.
+Stream-dns is a DNS server written in Go.
 
-## Overview
+Stream-dns can listen for DNS requests coming in over UDP/TCP
 
-The DNS server collects the records (in a JSON format) from a Kafka node. The kafka acts as a source for him.
-The DNS server serve both UDP and TCP connections. If there is a problem with the server, just restart the service and he will recreate his state by re-reading the records in the kafka topic.
-The records are registered on the FS by using a An embedded key/value database: [bbolt](https://github.com/boltdb/bolt). The key has (same as kafka) the format: `<domain>.|<qtype>` and the value:
-```json
-[
-	{ "name": "...", "type": "A", "content": "10.234.128.12", "priority": 0 },
-	...
-]
-```
+Currently Stream-dns is able to:
 
-Overview of the DNS server components:
+* Serve zone data and resolve for none zone authority
+* act as a primaries server (AXFR only)
+* Automatically load zone from Kafka.
+* Forward queries to some other (recursive) nameserver.
+* Provide metrics with the `statsd` format
+* Provide query and error logging
+* Systemd integration (service)
 
-``` mermaid
-graph TD
-Consumer -.->|dns record/json| D
-D(dns serveur) --- A
-D --- B(bbolt)
-C[client dns] -- query --> D
-D(dns serveur) -- answer --> C
-A(metrics agent) --> O(outputs)
-O -.-> Warp10
-```
+## Compilation from Source
 
-## Build
+To compile `Stream-dns`, we assume you have a working Go setup. See various tutorials if you don’t have that already configured.
 
-The project use Go 1.11 [Modules](https://github.com/golang/go/wiki/Modules) to resolve his dependencies. So make sure you have the env variable GO111MODULE set to `on` or `auto`.
-You have two way to build this program:
+First, make sure your Golang version is 1.11+ or higher as [go mod](https://github.com/golang/go/wiki/Modules) support is needed. See here for go mod details. Then, check out the project and run the command:
 
-*Recommanded:* `$ go install stream-dns` (The binary output will be place in the directory `$GOPATH/bin`)
+`go install stream-dns`
 
-or
+This should create a stream-dns binary in your `GOBIN` or bin folder within your `GOPATH` folder.
 
-```sh
-$ export GO111MODULE=on
-$ cd $GOPATH/src/<project path>
-$ go build
-```
+NOTE: packages for mainstream Linux distribution should come soon.
 
-NOTE: Don't forget to setup your [$GOPATH](https://golang.org/doc/code.html#GOPATH) before.
+## configuration
 
-## Run
-
-### Development mode
-
-- Start a single Kafka node (follow this instructions: [kafka.apache.org/quickstart](https://kafka.apache.org/quickstart))
-- Run the nodeJS migration script: [clever-cloud/migration-powerdns-pg-to-kafka](https://gitlab.corp.clever-cloud.com/clever-cloud/migration-powerdns-pg-to-kafka)
-- (optional) Set the connection URI of the powerdns follower in the PG_CON env variable (optional)
-- configure the project by using a `.env` file (more info § configuration)
-- run the command `bin/stream-dns`
-
-### Production mode
-
-`systemctl start stream-dns`
-
-### Test suites
-
-Run the test suites:
-
-```sh
-$ cd $GOPATH/src/kafka-dns
-$ go test -v ./...
-```
-
-NOTE: If you like color stdout output, you can run the tests with: [richgo](https://github.com/kyoh86/richgo)
-
-Measure the code coverage:
-
-```sh
-$ cd $GOPATH/src/kafka-dns
-$ go test -coverprofile=c.out ./...
-```
-
-## Query the server
-
-You can use the `dig` or `host` linux command to query server:
-
-Examples:
-```bash
-dig @localhost -p 8053 yourdomain.com
-dig @localhost -p 8053 axfr zonetransfer.me
-```
-
-
-## Configuration
-
-This services use environment variables for it's configuration.
-The following env variables are needed:
+Stream-dns use environment variables for it's configuration.
+The following environment variables can be set:
 
 | Variable                   | Type           | Description                                                                                     |
-| DNS_ADDRESS                | string         | Address for the DNS server e.g: ":8053"                                                         |
 |----------------------------|----------------|-------------------------------------------------------------------------------------------------|
+| DNS_ADDRESS                | string         | Address for the DNS server e.g: ":8053"                                                         |
 | DNS_TCP                    | bool           | Accept TCP DNS connection                                                                       |
 | DNS_UDP                    | bool           | Accept UDP DNS connection                                                                       |
 | DNS_RESOLVER_ADDRESS       | string         | Address use to resolve unsupported zone                                                         |
@@ -110,39 +49,40 @@ The following env variables are needed:
 | DNS_DISALLOW_CNAME_ON_APEX | bool           | (optional) Disallow CNAME on a APEX domain                                                      |
 | DNS_ADMINISTRATOR_ADDRESS  | string         | (optional) Address use by the HTTP administrator                                                |
 
-## Tools
+## Run it
 
-This project provide some tools to help during the development:
+An important preliminary phase is to start a single Kafka node. You can do this easily by following the instructions in this quickstart tutorial: https://kafka.apache.org/quickstart (just the first two steps). You an use the tool script [seed.go](TODO link) provide in this repository to seed your Kafka topic with fake record.
 
-### A DNS client
+After that, just start Stream-dns: `./stream-dns` by setting the configuration through environment variables (see §configuration for more information). Then just query on that port (53). The query should be catch for authoritary zone DNS or forwarded to another nameserver e.g: 9.9.9.9 and the response will be returned. Each query should also show up in the log which is printed on standard output.
 
-Client DNS lookup which support multiple questions:
+You can query the `stream-dns` with the utilitary Linux tool [dig](https://linux.die.net/man/1/dig):
 
-Build: `go install kafka-dns/tools/client`
-Usage: `client [[qname], [qtype]]...`
-Run: `$GOPATH/bin/client yolo.com A foo.bar AAAA`
+`dig @<ip address> -p <port> <domain>` (see dig man page for more information)
 
-NOTE: qtype should be in upper case).
+Example:
 
-### Kafka record producer
+```bash
+dig @127.0.0.1 -p 8053 my.domain.internal
+dig @127.0.0.1 -p 8053 a example.com
+```
 
-A Kafka producer to register custom record in the Kafka
+NOTE:  You'll need to be root to start listening on port 53.
 
-Build: `go install kafka-dns/tools/producer`
-Usage: `producer name type content ttl priority`
-Run: `$GOPATH/bin/producer yolo.com A 2.4.4.6 3600 0`
+### Deployment
 
-### Metrics
+You can deploy this as a systemd service with the Unit file prodived: @TODO put link.
 
-To test the metrics system you can use the `statsd` output. You just have to configure this by setting two env variables: `DNS_STATSD_ADDRESS`, `DNS_STATSD_PREFIX`.
-You can use [Cernan](https://github.com/postmates/cernan), a telemetry and logging aggregation server for a dev environment.
+### Run with Docker
 
-## Continuous integration
+If you already have docker installed and prefer not to setup a Go environment, you could run Stream-dns easily in a Linux container:
 
-This project use a gitlab runner for his CI. The `.gitlab-ci.yml` file contains your tests and overall process steps.
-The gitlab runner can be found in the _Clever CI_ organisation: `orga_932b0d2f-b29b-41f3-a36e-845ce9d0f9ed` with the app-id: `app_1879bf1e-fa0b-4bd8-b923-15152a0fdda4`.
+```bash
+docker build -t $USER/stream-dns .
+docker run --rm -p 8053:53 stream-dns
+```
 
-## Sentry | error tracker
+or with docker-compose to have stream-dns with a kafka and his zookeeper:
 
-The Sentry dashboard is available here: https://sentry-clevercloud-customers.services.clever-cloud.com/clevercloud/stream-dns/
-You have just have to define the `DNS_SENTRY_DSN` env variable to use it or let it empty to ignore this (in development mode).
+```bash
+docker-compose up
+```
