@@ -66,7 +66,6 @@ func main() {
 		viper.GetString("pathdb"),
 		viper.GetString("sentry_dsn"),
 		viper.GetBool("disallow_cname_on_apex"),
-		viper.GetString("administrator_address"),
 	}
 
 	// Sentry
@@ -105,10 +104,6 @@ func main() {
 	go kafkaConsumer.Run(db, agent.Input, config.DisallowCNAMEonAPEX)
 
 	go serve(db, config.Dns, agent.Input)
-
-	// Http administrator
-	httpAdministrator := NewHttpAdministrator(db, config.AdministratorAddress)
-	go httpAdministrator.StartHttpAdministrator()
 	
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	s := <-sig

@@ -12,7 +12,6 @@ type Config struct {
 	PathDB               string
 	sentryDSN            string
 	DisallowCNAMEonAPEX  bool
-	AdministratorAddress string
 }
 
 type StatsdConfig struct {
