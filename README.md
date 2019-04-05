@@ -47,7 +47,6 @@ The following environment variables can be set:
 | DNS_STATSD_ADDRESS         | string         | Address use to output the metrics in a statd format e.g: "127.0.0.1:8125"                       |
 | DNS_STATSD_PREFIX          | string         | (optional) Add a prefix on statd field metric                                                   |
 | DNS_DISALLOW_CNAME_ON_APEX | bool           | (optional) Disallow CNAME on a APEX domain                                                      |
-| DNS_ADMINISTRATOR_ADDRESS  | string         | (optional) Address use by the HTTP administrator                                                |
 
 ## Run it
 
