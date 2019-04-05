@@ -30,8 +30,8 @@ Stream-dns use environment variables for it's configuration.
 The following environment variables can be set:
 
 | Variable                   | Type           | Description                                                                                     |
-| DNS_ADDRESS                | string         | Address for the DNS server e.g: ":8053"                                                         |
 |----------------------------|----------------|-------------------------------------------------------------------------------------------------|
+| DNS_ADDRESS                | string         | Address for the DNS server e.g: ":8053"                                                         |
 | DNS_TCP                    | bool           | Accept TCP DNS connection                                                                       |
 | DNS_UDP                    | bool           | Accept UDP DNS connection                                                                       |
 | DNS_RESOLVER_ADDRESS       | string         | Address use to resolve unsupported zone                                                         |
