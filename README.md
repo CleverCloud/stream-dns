@@ -80,3 +80,9 @@ If you already have docker installed and prefer not to setup a Go environment, y
 docker build -t $USER/stream-dns .
 docker run --rm -p 8053:53 stream-dns
 ```
+
+or with docker-compose to have stream-dns with a kafka and his zookeeper:
+
+```bash
+docker-compose up
+```
