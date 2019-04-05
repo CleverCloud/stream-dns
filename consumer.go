@@ -31,6 +31,9 @@ func NewKafkaConsumer(config KafkaConfig) (*KafkaConsumer, error) {
 	configConsumer.Net.SASL.Enable = false
 	configConsumer.Net.TLS.Enable = false
 
+	configConsumer.Config.Metadata.Retry.Max = 10
+	configConsumer.Config.Metadata.Retry.Backoff = 10 * time.Second
+
 	if config.SaslEnable {
 		log.Info("SASL enabled for the consumer: ", config.Address)
 		configConsumer.Net.SASL.Enable = true
