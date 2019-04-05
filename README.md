@@ -50,7 +50,7 @@ The following environment variables can be set:
 
 ## Run it
 
-An important preliminary phase is to start a single Kafka node. You can do this easily by following the instructions in this quickstart tutorial: https://kafka.apache.org/quickstart (just the first two steps). You an use the tool script [seed.go](https://github.com/CleverCloud/stream-dns/blob/master/tools/seed/seed.go) provide in this repository to seed your Kafka topic with fake record.
+An important preliminary phase is to start a single Kafka node. You can do this easily by following the instructions in this quickstart tutorial: https://kafka.apache.org/quickstart (just the first two steps). You an use the tool script [seed.go](https://github.com/CleverCloud/stream-dns/blob/master/tools/seed/seed.go) provide in this repository to populate your Kafka topic with fake record.
 
 After that, just start Stream-dns: `./stream-dns` by setting the configuration through environment variables (see §configuration for more information). Then just query on that port (53). The query should be catch for authoritary zone DNS or forwarded to another nameserver e.g: 9.9.9.9 and the response will be returned. Each query should also show up in the log which is printed on standard output.
 
@@ -66,6 +66,23 @@ dig @127.0.0.1 -p 8053 a example.com
 ```
 
 NOTE:  You'll need to be root to start listening on port 53.
+
+### Record in Kafka
+
+The Kafka message key MUST follow the format: `<domain>.|<qtype>` and the payload:
+
+```json
+[
+	{ "name": "domain", "type": "record type", "content": "<ip address and other infos like SOA>", "priority": 0 },
+	...
+]
+```
+
+You can use the utils script [seed.go](https://github.com/CleverCloud/stream-dns/blob/master/tools/seed/seed.go) to populate a Kafka topic with fake records:
+
+```bash
+TOPIC=test BROKER_ADDRESS="localhost:9092" $GOPATH/bin/seed
+```
 
 ### Deployment
 
