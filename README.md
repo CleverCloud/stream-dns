@@ -1,8 +1,8 @@
 [![Build Status](https://travis-ci.org/CleverCloud/stream-dns.svg?branch=master)](https://travis-ci.org/CleverCloud/stream-dns)
 
-Stream-dns is a DNS server written in Go.
+Stream-dns is a DNS server written in Go originally written in [Clever Cloud](https://www.clever-cloud.com/).
 
-Stream-dns can listen for DNS requests coming in over UDP/TCP
+Stream-dns can listen for DNS requests coming in over UDP/TCP and use kafka as datastore and zone propagation.
 
 Currently Stream-dns is able to:
 
