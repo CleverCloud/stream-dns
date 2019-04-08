@@ -14,6 +14,18 @@ Currently Stream-dns is able to:
 * Provide query and error logging
 * Systemd integration (service)
 
+``` mermaid
+graph TD
+Consumer -.->|dns record/json| D
+D(dns serveur) --- A
+D --- B(bbolt)
+C[client dns] -- query --> D
+D(dns serveur) -- answer --> C
+A(metrics agent) --> O(outputs)
+O -.-> Warp10
+```
+
+
 ## Compilation from Source
 
 To compile `Stream-dns`, we assume you have a working Go setup. See various tutorials if you don’t have that already configured.
