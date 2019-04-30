@@ -39,6 +39,10 @@ func main() {
 	viper.AllowEmptyEnv(false)
 
 	config := Config{
+		PulsarConfig{
+			Address: viper.GetString("pulsar_address"),
+			Topic: viper.GetString("pulsar_topic"),
+		},
 		KafkaConfig{
 			Address:    viper.GetStringSlice("kafka_address"),
 			Topics:     viper.GetStringSlice("kafka_topics"),
@@ -94,14 +98,26 @@ func main() {
 	go agent.Run()
 
 	// Run goroutines service
-	kafkaConsumer, err := NewKafkaConsumer(config.Kafka)
 
-	if err != nil {
-		log.Panic(err)
-		raven.CaptureError(err, nil)
+	if len(config.Kafka.Address) > 0 && config.Kafka.Address != nil {
+		kafkaConsumer, err := NewKafkaConsumer(config.Kafka)
+		if err != nil {
+			log.Panic(err)
+			raven.CaptureError(err, nil)
+		}
+
+		go kafkaConsumer.Run(db, agent.Input, config.DisallowCNAMEonAPEX)
 	}
 
-	go kafkaConsumer.Run(db, agent.Input, config.DisallowCNAMEonAPEX)
+	if config.Pulsar.Address != "" {
+		pulsarConsumer, err := NewPulsarConsumer(config.Pulsar)
+		if err != nil {
+			log.Panic(err)
+			raven.CaptureError(err, nil)
+		}
+
+		go pulsarConsumer.Run(db, agent.Input, config.DisallowCNAMEonAPEX)
+	}
 
 	go serve(db, config.Dns, agent.Input)
 	

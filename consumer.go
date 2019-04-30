@@ -1,13 +1,15 @@
 package main
 
 import (
-	"time"
+	"context"
 	"errors"
+	"time"
 
 	ms "stream-dns/metrics"
 	u "stream-dns/utils"
 
 	"github.com/Shopify/sarama"
+	"github.com/apache/pulsar/pulsar-client-go/pulsar"
 	cluster "github.com/bsm/sarama-cluster"
 	"github.com/getsentry/raven-go"
 	"github.com/miekg/dns"
@@ -17,6 +19,55 @@ import (
 
 type consumer interface {
 	Run(db *bolt.DB, metrics chan ms.Metric) error
+}
+
+type PulsarConsumer struct {
+	config PulsarConfig
+	client pulsar.Client
+	reader pulsar.Reader
+}
+
+func NewPulsarConsumer(config PulsarConfig) (*PulsarConsumer, error) {
+	client, err := pulsar.NewClient(pulsar.ClientOptions{
+		URL: config.Address,
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	reader, err := client.CreateReader(pulsar.ReaderOptions{
+		Topic:          config.Topic,
+		StartMessageID: pulsar.LatestMessage,
+	})
+
+	return &PulsarConsumer{config, client, reader}, nil
+}
+
+func (p *PulsarConsumer) Run(db *bolt.DB, metrics chan ms.Metric, disallowCnameOnApex bool) error {
+	log.Infof("Pulsar consumer connected to the pulsar node %s and ready to consume", p.config.Address)
+
+	defer p.reader.Close()
+
+	ctx := context.Background()
+
+	for {
+		m, err := p.reader.Next(ctx)
+
+		if err != nil {
+			log.WithError(err).Error(err)
+			raven.CaptureError(err, nil)
+		}
+
+		log.Info("Got record for domain: ", m.Key())
+		metrics <- ms.NewMetric("nb-record", nil, nil, time.Now(), ms.Counter)
+
+		err = registerRecordAsBytesWithTheKeyInDB(db, []byte(m.Key()), m.Payload(), disallowCnameOnApex)
+
+		if err != nil {
+			log.Fatalf("Error reading from topic: %v", err)
+		}
+	}
 }
 
 type KafkaConsumer struct {
