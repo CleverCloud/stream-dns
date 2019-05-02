@@ -1,4 +1,6 @@
 language: go
+sudo: true # needed to install the pulsar-client-cpp
+dist: xenial
 
 go:
  - 1.11.x
@@ -6,6 +8,11 @@ go:
 
 env:
  - GO111MODULE=on
+
+before_install:
+  - wget -O pulsar-client-cpp.deb http://apache.panu.it/pulsar/pulsar-2.3.1/DEB/apache-pulsar-client.deb
+  - wget -O pulsar-client-dev.deb http://apache.panu.it/pulsar/pulsar-2.3.1/DEB/apache-pulsar-client-dev.deb
+  - sudo apt install ./pulsar-client-cpp.deb ./pulsar-client-dev.deb
 
 script:
  - go test -v ./...
