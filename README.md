@@ -16,13 +16,16 @@ Currently Stream-dns is able to:
 
 ``` mermaid
 graph TD
+producer -->|dns record| Kafka
+Kafka(Kafka, Pulsar) -->|dns record| Consumer
 Consumer -.->|dns record/json| D
-D(dns serveur) --- A
-D --- B(bbolt)
+D(dns serveur) -.- A
+D -.- B(bbolt)
 C[client dns] -- query --> D
 D(dns serveur) -- answer --> C
-A(metrics agent) --> O(outputs)
-O -.-> Warp10
+A(metrics agent) -.-> O(outputs)
+O -->|statsd| M(metrics collector)
+M --> Grafana
 ```
 
 
