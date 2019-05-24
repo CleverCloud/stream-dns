@@ -1,8 +1,12 @@
 package main
 
 import (
-	"time"
+	"crypto/sha256"
+	"crypto/sha512"
 	"errors"
+	"hash"
+	"strings"
+	"time"
 
 	ms "stream-dns/metrics"
 	u "stream-dns/utils"
@@ -12,6 +16,7 @@ import (
 	"github.com/getsentry/raven-go"
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
+	"github.com/xdg/scram"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -23,6 +28,33 @@ type KafkaConsumer struct {
 	config         KafkaConfig
 	configConsumer *cluster.Config
 	consumer       *cluster.Consumer
+}
+
+var SHA256 scram.HashGeneratorFcn = func() hash.Hash { return sha256.New() }
+var SHA512 scram.HashGeneratorFcn = func() hash.Hash { return sha512.New() }
+
+type XDGSCRAMClient struct {
+	*scram.Client
+	*scram.ClientConversation
+	scram.HashGeneratorFcn
+}
+
+func (x *XDGSCRAMClient) Begin(userName, password, authzID string) (err error) {
+	x.Client, err = x.HashGeneratorFcn.NewClient(userName, password, authzID)
+	if err != nil {
+		return err
+	}
+	x.ClientConversation = x.Client.NewConversation()
+	return nil
+}
+
+func (x *XDGSCRAMClient) Step(challenge string) (response string, err error) {
+	response, err = x.ClientConversation.Step(challenge)
+	return
+}
+
+func (x *XDGSCRAMClient) Done() bool {
+	return x.ClientConversation.Done()
 }
 
 func NewKafkaConsumer(config KafkaConfig) (*KafkaConsumer, error) {
@@ -40,6 +72,17 @@ func NewKafkaConsumer(config KafkaConfig) (*KafkaConsumer, error) {
 		configConsumer.Net.SASL.User = config.User
 		configConsumer.Net.SASL.Password = config.Password
 		configConsumer.Net.SASL.Mechanism = sarama.SASLMechanism(config.Mechanism)
+
+		if strings.Contains(config.Mechanism, "sha512") || strings.Contains(config.Mechanism, "SHA-512") {
+			configConsumer.Net.SASL.SCRAMClientGeneratorFunc = func() sarama.SCRAMClient { return &XDGSCRAMClient{HashGeneratorFcn: SHA512} }
+			configConsumer.Net.SASL.Mechanism = sarama.SASLMechanism(sarama.SASLTypeSCRAMSHA512)
+		} else if strings.Contains(config.Mechanism, "sha256") || strings.Contains(config.Mechanism, "SHA-256") {
+			configConsumer.Net.SASL.SCRAMClientGeneratorFunc = func() sarama.SCRAMClient { return &XDGSCRAMClient{HashGeneratorFcn: SHA256} }
+			configConsumer.Net.SASL.Mechanism = sarama.SASLMechanism(sarama.SASLTypeSCRAMSHA256)
+
+		} else {
+			log.Fatalf("invalid SHA algorithm \"%s\": can be either \"sha256\" or \"sha512\"", config.Mechanism)
+		}
 	}
 
 	if config.TlsEnable {
