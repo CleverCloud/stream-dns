@@ -81,11 +81,12 @@ func getRecordsFromBucket(bucket *bolt.Bucket, qname string) ([][]Record, error)
 
 func registerHandlerForResolver(pattern string, db *bolt.DB, address string, metrics chan ms.Metric) {
 	dns.HandleFunc(pattern, func(w dns.ResponseWriter, r *dns.Msg) {
-		log.Info("[DNS] Got a request for unsupported zone ", r.Question[0].Name)
-		metrics <- ms.NewMetric("resolver", nil, nil, time.Now(), ms.Counter)
-
 		qname := r.Question[0].Name
 		qtype := r.Question[0].Qtype
+		remoteAddr := w.RemoteAddr()
+
+		log.Infof("[DNS] Got a request from %s::%s for unsupported zone: %s for the type %s", remoteAddr.Network(), remoteAddr.String(), qname, dns.TypeToString[qtype])
+		metrics <- ms.NewMetric("resolver", nil, nil, time.Now(), ms.Counter)
 
 		m := new(dns.Msg)
 		m.SetReply(r)
@@ -112,6 +113,9 @@ func registerHandlerForResolver(pattern string, db *bolt.DB, address string, met
 		}
 
 		w.WriteMsg(m)
+		answersfmt := u.FormatAnswers(m.Answer)
+		log.Infof("[DNS] Answered to %s::%s request: %s with the type %s - found %d answer(s): \n%s",
+			remoteAddr.Network(), remoteAddr.String(), qname, dns.TypeToString[qtype], len(m.Answer), answersfmt)
 	})
 }
 
@@ -142,16 +146,20 @@ func registerHandlerForZone(zone string, db *bolt.DB, metrics chan ms.Metric) {
 		qname := r.Question[0].Name
 		qtype := r.Question[0].Qtype
 
-		log.Info("[DNS] Got a request for ", r.Question[0].Name, " with the type ", dns.TypeToString[qtype])
+		remoteAddr := w.RemoteAddr()
+		log.Infof("[DNS] Got a request from %s::%s for %s with the type %s ", remoteAddr.Network(), remoteAddr.String(), r.Question[0].Name, dns.TypeToString[qtype])
 
 		m := new(dns.Msg)
 		m.SetReply(r)
 
-		if qtype != dns.TypeAXFR {
+		if qtype == dns.TypeAXFR {
+			handlerZoneTransfer(qname, db, m, r, w, metrics)
+		} else {
 			findRecordsAndSetAsAnswersInMessage(qname, qtype, db, m, r, metrics)
 			w.WriteMsg(m)
-		} else {
-			handlerZoneTransfer(qname, db, m, r, w, metrics)
+			answersfmt := u.FormatAnswers(m.Answer)
+			log.Infof("[DNS] Answered to %s::%s request: %s with the type %s - found %d answer(s): \n%s",
+				remoteAddr.Network(), remoteAddr.String(), qname, dns.TypeToString[qtype], len(m.Answer), answersfmt)
 		}
 	})
 }

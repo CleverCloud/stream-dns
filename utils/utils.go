@@ -47,3 +47,23 @@ func ExtractQnameAndQtypeFromConsumerKey(key []byte) (string, uint16) {
 func TrimTrailingDotInDomain(domain string) string {
 	return strings.TrimSuffix(domain, ".")
 }
+
+// Format a list of answers
+func FormatAnswers(answers []dns.RR) string {
+	var buff bytes.Buffer
+
+	for _, a := range answers {
+		s := FormatAnswer(a) + "\n"
+		buff.WriteString(s)
+	}
+
+	return buff.String()
+}
+
+// Format an answer in a string with this format:
+// Name. TTL Class Type
+// The default String method put \t between each elements. This method replace this all \t by a whitespace
+func FormatAnswer(answer dns.RR) string {
+	h := answer.Header().String()
+	return strings.ReplaceAll(h, "\t", " ")
+}
