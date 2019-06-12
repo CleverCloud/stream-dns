@@ -177,6 +177,8 @@ func registerRecordAsBytesWithTheKeyInDB(db *bolt.DB, key []byte, record []byte,
 			return err
 		}
 
+		log.Infof("Saved for the domain %s.|%s:\n%s", domain, dns.TypeToString[qtype], string(record))
+
 		return nil
 	})
 }
