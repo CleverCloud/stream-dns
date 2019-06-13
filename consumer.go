@@ -116,7 +116,7 @@ func (k *KafkaConsumer) Run(db *bolt.DB, metrics chan ms.Metric, disallowCnameOn
 		select {
 		case m, ok := <-k.consumer.Messages():
 			log.Info("Got record for domain: ", string(m.Key))
-			metrics <- ms.NewMetric("nb-record", nil, nil, time.Now(), ms.Counter)
+			metrics <- ms.NewMetric("nb-record", nil, time.Now(), ms.Counter)
 
 			logRecordDiffIfTheRecordWasAlreayHere(db, m.Key, m.Value)
 
@@ -132,7 +132,7 @@ func (k *KafkaConsumer) Run(db *bolt.DB, metrics chan ms.Metric, disallowCnameOn
 			}
 
 		case err := <-k.consumer.Errors():
-			metrics <- ms.NewMetric("kafka-consumer", nil, nil, time.Now(), ms.Counter)
+			metrics <- ms.NewMetric("kafka-consumer", nil, time.Now(), ms.Counter)
 			log.WithError(err).Error("Kafka consumer error")
 		}
 	}

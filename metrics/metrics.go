@@ -25,16 +25,10 @@ type Tag struct {
 	Value string
 }
 
-type Field struct {
-	Key   string
-	Value interface{}
-}
-
 type Metric interface {
 	// data structure functions
 	Name() string
 	Tags() map[string]string
-	Fields() map[string]interface{}
 	Time() time.Time
 	Type() ValueType
 
@@ -45,11 +39,6 @@ type Metric interface {
 	HasTag(key string) bool
 	AddTag(key, value string)
 
-	// Field functions
-	GetField(key string) (interface{}, bool)
-	HasField(key string) bool
-	AddField(key string, value interface{})
-
 	SetTime(t time.Time)
 
 	SetAggregate(bool)
@@ -59,7 +48,6 @@ type Metric interface {
 type metric struct {
 	name      string
 	tags      []Tag
-	fields    []Field
 	tm        time.Time
 	tp        ValueType
 	aggregate bool
@@ -68,16 +56,14 @@ type metric struct {
 func NewMetric(
 	name string,
 	tags map[string]string,
-	fields map[string]interface{},
 	tm time.Time,
 	tp ...ValueType,
 ) Metric {
 	m := &metric{
-		name:   name,
-		tags:   nil,
-		fields: nil,
-		tm:     tm,
-		tp:     tp[0],
+		name: name,
+		tags: nil,
+		tm:   tm,
+		tp:   tp[0],
 	}
 
 	if len(tags) > 0 {
@@ -88,17 +74,11 @@ func NewMetric(
 		}
 	}
 
-	m.fields = make([]Field, 0, len(fields))
-
-	for k, v := range fields {
-		m.AddField(k, v)
-	}
-
 	return m
 }
 
 func (m *metric) ToString() string {
-	return fmt.Sprintf("%s %v %v %d", m.name, m.Tags(), m.Fields(), m.tm.UnixNano())
+	return fmt.Sprintf("%s %v %v %d", m.name, m.Tags(), m.tm.UnixNano())
 }
 
 func (m *metric) Name() string {
@@ -111,15 +91,6 @@ func (m *metric) Tags() map[string]string {
 		tags[tag.Key] = tag.Value
 	}
 	return tags
-}
-
-func (m *metric) Fields() map[string]interface{} {
-	fields := make(map[string]interface{}, len(m.fields))
-	for _, field := range m.fields {
-		fields[field.Key] = field.Value
-	}
-
-	return fields
 }
 
 func (m *metric) Time() time.Time {
@@ -161,34 +132,6 @@ func (m *metric) GetTag(key string) (string, bool) {
 		}
 	}
 	return "", false
-}
-
-func (m *metric) AddField(key string, value interface{}) {
-	for i, field := range m.fields {
-		if key == field.Key {
-			m.fields[i] = Field{key, value}
-			return
-		}
-	}
-	m.fields = append(m.fields, Field{key, value})
-}
-
-func (m *metric) HasField(key string) bool {
-	for _, field := range m.fields {
-		if field.Key == key {
-			return true
-		}
-	}
-	return false
-}
-
-func (m *metric) GetField(key string) (interface{}, bool) {
-	for _, field := range m.fields {
-		if field.Key == key {
-			return field.Value, true
-		}
-	}
-	return nil, false
 }
 
 func (m *metric) SetTime(t time.Time) {

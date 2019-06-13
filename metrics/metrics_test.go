@@ -3,8 +3,9 @@ package metrics
 import (
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestNoDuplicateWhenAddingTag(t *testing.T) {
@@ -15,7 +16,6 @@ func TestNoDuplicateWhenAddingTag(t *testing.T) {
 	metric := NewMetric(
 		"name",
 		tags,
-		make(map[string]interface{}),
 		time.Now(),
 		Counter,
 	)
@@ -35,7 +35,6 @@ func TestFindTagWhenExist(t *testing.T) {
 	metric := NewMetric(
 		"name",
 		tags,
-		make(map[string]interface{}, 1),
 		time.Now(),
 		Counter,
 	)
@@ -56,7 +55,6 @@ func TestUpdateTheValueWhenTagAlreadyExist(t *testing.T) {
 	metric := NewMetric(
 		"name",
 		tags,
-		make(map[string]interface{}),
 		time.Now(),
 		Counter,
 	)
@@ -66,65 +64,4 @@ func TestUpdateTheValueWhenTagAlreadyExist(t *testing.T) {
 
 	// want
 	assert.Equal(t, "new", metric.Tags()["foo"])
-}
-
-func TestNoDuplicateWhenAddingField(t *testing.T) {
-	fields := make(map[string]interface{}, 1)
-	fields["foo"] = float64(1)
-
-	// got
-	metric := NewMetric(
-		"name",
-		make(map[string]string),
-		fields,
-		time.Now(),
-		Counter,
-	)
-
-	// do
-	metric.AddField("foo", float64(2))
-
-	// want
-	assert.Equal(t, 1, len(metric.Fields()))
-}
-
-func TestFindFieldWhenExist(t *testing.T) {
-	fields := make(map[string]interface{}, 1)
-	fields["foo"] = float64(1)
-
-	// got
-	metric := NewMetric(
-		"name",
-		make(map[string]string),
-		fields,
-		time.Now(),
-		Counter,
-	)
-
-	// do
-	value, _ := metric.GetField("foo")
-
-	// want
-	assert.True(t, metric.HasField("foo"))
-	assert.Equal(t, float64(1), value)
-}
-
-func TestUpdateTheValueWhenFieldAlreadyExist(t *testing.T) {
-	fields := make(map[string]interface{}, 1)
-	fields["foo"] = float64(1)
-
-	// got
-	metric := NewMetric(
-		"name",
-		make(map[string]string),
-		fields,
-		time.Now(),
-		Counter,
-	)
-
-	// do
-	metric.AddField("foo", float64(2))
-
-	// want
-	assert.Equal(t, float64(2), metric.Fields()["foo"])
 }
