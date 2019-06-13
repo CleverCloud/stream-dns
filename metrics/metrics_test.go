@@ -18,6 +18,7 @@ func TestNoDuplicateWhenAddingTag(t *testing.T) {
 		tags,
 		time.Now(),
 		Counter,
+		1,
 	)
 
 	// do
@@ -25,6 +26,7 @@ func TestNoDuplicateWhenAddingTag(t *testing.T) {
 
 	// want
 	assert.Equal(t, 1, len(metric.Tags()))
+	assert.Equal(t, 1, metric.Value().(int))
 }
 
 func TestFindTagWhenExist(t *testing.T) {
@@ -37,6 +39,7 @@ func TestFindTagWhenExist(t *testing.T) {
 		tags,
 		time.Now(),
 		Counter,
+		1,
 	)
 
 	// do
@@ -45,6 +48,7 @@ func TestFindTagWhenExist(t *testing.T) {
 	// want
 	assert.True(t, metric.HasTag("foo"))
 	assert.Equal(t, "bar", value)
+	assert.Equal(t, 1, metric.Value().(int))
 }
 
 func TestUpdateTheValueWhenTagAlreadyExist(t *testing.T) {
@@ -57,6 +61,7 @@ func TestUpdateTheValueWhenTagAlreadyExist(t *testing.T) {
 		tags,
 		time.Now(),
 		Counter,
+		1,
 	)
 
 	// do
@@ -64,4 +69,5 @@ func TestUpdateTheValueWhenTagAlreadyExist(t *testing.T) {
 
 	// want
 	assert.Equal(t, "new", metric.Tags()["foo"])
+	assert.Equal(t, 1, metric.Value().(int))
 }

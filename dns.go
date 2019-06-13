@@ -91,7 +91,7 @@ func registerHandlerForResolver(pattern string, db *bolt.DB, address string, met
 		remoteAddr := w.RemoteAddr()
 
 		log.Infof("[DNS] Got a request from %s::%s for unsupported zone: %s for the type %s", remoteAddr.Network(), remoteAddr.String(), qname, dns.TypeToString[qtype])
-		metrics <- ms.NewMetric("resolver", nil, time.Now(), ms.Counter)
+		metrics <- ms.NewMetric("resolver", nil, time.Now(), ms.Counter, 1)
 
 		m := new(dns.Msg)
 		m.SetReply(r)
@@ -105,7 +105,7 @@ func registerHandlerForResolver(pattern string, db *bolt.DB, address string, met
 			answers, err := resolverLookup(address, qname, qtype)
 
 			if err != nil {
-				metrics <- ms.NewMetric("resolver-error", nil, time.Now(), ms.Counter)
+				metrics <- ms.NewMetric("resolver-error", nil, time.Now(), ms.Counter, 1)
 				raven.CaptureError(err, map[string]string{"unit": "dns"})
 				log.Errorf("Resolver: %s for %s %s", err, qname, dns.TypeToString[qtype])
 				m.SetRcode(r, dns.RcodeServerFailure)
@@ -224,7 +224,7 @@ func recursionOnCname(b *bolt.Bucket, record Record) [][]Record {
 }
 
 func findRecordsAndSetAsAnswersInMessage(qname string, qtype uint16, db *bolt.DB, m *dns.Msg, r *dns.Msg, metrics chan ms.Metric) {
-	metrics <- ms.NewMetric("queries", nil, time.Now(), ms.Counter)
+	metrics <- ms.NewMetric("queries", nil, time.Now(), ms.Counter, 1)
 
 	err := db.View(func(tx *bolt.Tx) error {
 		// TODO: check if the bucket already exists and has keys
@@ -268,7 +268,7 @@ func findRecordsAndSetAsAnswersInMessage(qname string, qtype uint16, db *bolt.DB
 	})
 
 	if err != nil {
-		metrics <- ms.NewMetric("err-queries", nil, time.Now(), ms.Counter)
+		metrics <- ms.NewMetric("err-queries", nil, time.Now(), ms.Counter, 1)
 		raven.CaptureError(err, map[string]string{"unit": "dns", "action": "find records"})
 		log.Errorf("[dns]: %s for %s %s", err, qname, dns.TypeToString[qtype])
 	}
@@ -289,12 +289,12 @@ func extractDomainFromKey(key []byte) []byte {
 // More info RFC5936: https://tools.ietf.org/html/rfc5936#section-2.2
 func handlerZoneTransfer(qname string, db *bolt.DB, m *dns.Msg, r *dns.Msg, w dns.ResponseWriter, metrics chan ms.Metric) {
 	log.Info("[DNS] request a transfer zone for ", qname)
-	metrics <- ms.NewMetric("queries-axfr", nil, time.Now(), ms.Counter)
+	metrics <- ms.NewMetric("queries-axfr", nil, time.Now(), ms.Counter, 1)
 
 	soa, records, err := findRecordsAndSOAForAXFRInDB(db, qname)
 
 	if err != nil {
-		metrics <- ms.NewMetric("err-queries-axfr", nil, time.Now(), ms.Counter)
+		metrics <- ms.NewMetric("err-queries-axfr", nil, time.Now(), ms.Counter, 1)
 		raven.CaptureError(err, map[string]string{"unit": "dns", "action": "axfr"})
 		log.Fatal("[AXFR] ", err)
 		m.SetRcode(r, dns.RcodeServerFailure)

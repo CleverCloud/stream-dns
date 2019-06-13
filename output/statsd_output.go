@@ -1,5 +1,4 @@
 // Output that follow the https://github.com/etsy/statsd spec.
-//
 package output
 
 import (
@@ -43,11 +42,9 @@ func (a *StatsdOutput) Write(metrics []ms.Metric) {
 	for _, m := range metrics {
 		switch m.Type() {
 		case ms.Counter:
-			a.Client.Inc(m.Name(), 1, 1.0)
+			a.Client.Inc(m.Name(), m.Value().(int64), 1.0)
 		case ms.Gauge:
-			//TODO match this case
-		case ms.Message:
-			log.Warn("Statsd doesn't support the message metric type")
+			a.Client.Gauge(m.Name(), m.Value().(int64), 1.0)
 		default:
 			log.Warn("Unsupported metrics type by statsd: ", m.Type())
 		}

@@ -11,13 +11,11 @@ const (
 	_ ValueType = iota
 	Counter
 	Gauge
-	Message
 )
 
 var TypeToString = map[ValueType]string{
 	Counter: "counter",
 	Gauge:   "gauge",
-	Message: "message",
 }
 
 type Tag struct {
@@ -26,7 +24,6 @@ type Tag struct {
 }
 
 type Metric interface {
-	// data structure functions
 	Name() string
 	Tags() map[string]string
 	Time() time.Time
@@ -34,7 +31,6 @@ type Metric interface {
 
 	SetName(name string)
 
-	// Tag functions
 	GetTag(key string) (string, bool)
 	HasTag(key string) bool
 	AddTag(key, value string)
@@ -43,6 +39,8 @@ type Metric interface {
 
 	SetAggregate(bool)
 	IsAggregate() bool
+
+	Value() interface{}
 }
 
 type metric struct {
@@ -50,6 +48,7 @@ type metric struct {
 	tags      []Tag
 	tm        time.Time
 	tp        ValueType
+	value     interface{}
 	aggregate bool
 }
 
@@ -57,13 +56,15 @@ func NewMetric(
 	name string,
 	tags map[string]string,
 	tm time.Time,
-	tp ...ValueType,
+	tp ValueType,
+	value interface{},
 ) Metric {
 	m := &metric{
-		name: name,
-		tags: nil,
-		tm:   tm,
-		tp:   tp[0],
+		name:  name,
+		tags:  nil,
+		tm:    tm,
+		tp:    tp,
+		value: value,
 	}
 
 	if len(tags) > 0 {
@@ -78,7 +79,16 @@ func NewMetric(
 }
 
 func (m *metric) ToString() string {
-	return fmt.Sprintf("%s %v %v %d", m.name, m.Tags(), m.tm.UnixNano())
+	var val string
+
+	switch m.tp {
+	case Counter, Gauge:
+		val = fmt.Sprintf("%d", m.value)
+	default:
+		val = "[undefined type]"
+	}
+
+	return fmt.Sprintf("metric name = %s tags = %v at %d value = %s", m.name, m.Tags(), m.tm.UnixNano(), val)
 }
 
 func (m *metric) Name() string {
@@ -144,4 +154,9 @@ func (m *metric) SetAggregate(b bool) {
 
 func (m *metric) IsAggregate() bool {
 	return m.aggregate
+}
+
+// You must in the caller, cast the value into the correct type bu using the typevalue field
+func (m *metric) Value() interface{} {
+	return m.value
 }
