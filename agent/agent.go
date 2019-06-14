@@ -30,9 +30,8 @@ type Config struct {
 
 // Agent runs a set of plugins.
 type Agent struct {
-	Config Config
-	Input  chan metrics.Metric
-
+	Config  Config
+	Input   chan metrics.Metric
 	outputs []output.Output
 }
 
@@ -73,8 +72,6 @@ func (a *Agent) Run() error {
 			buf = buf[:0]
 		}
 	}
-
-	return nil
 }
 
 func (a *Agent) AddOutput(output output.Output) {
