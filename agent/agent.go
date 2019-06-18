@@ -46,7 +46,7 @@ func NewAgent(config Config) Agent {
 }
 
 func (a *Agent) Run() error {
-	log.Infof("[agent] Config: Flush Interval:%s", a.Config.FlushInterval)
+	log.Infof("[agent] Config: Flush Interval:%s", a.Config.FlushInterval*time.Millisecond)
 
 	err := a.connectOutputs()
 
@@ -63,7 +63,7 @@ func (a *Agent) Run() error {
 		case ret := <-a.Input:
 			buf = append(buf, ret)
 
-			if len(buf) == a.Config.BufferSize {
+			if len(buf) >= a.Config.BufferSize {
 				a.flushMetricsToOutput(buf)
 				buf = buf[:0] // Clear just the slice and keep his capacity
 			}
