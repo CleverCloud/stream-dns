@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -31,9 +32,12 @@ type Metric interface {
 
 	SetName(name string)
 
+	ToString() string
+
 	GetTag(key string) (string, bool)
 	HasTag(key string) bool
 	AddTag(key, value string)
+	TagsToString() string
 
 	SetTime(t time.Time)
 
@@ -88,7 +92,9 @@ func (m *metric) ToString() string {
 		val = "[undefined type]"
 	}
 
-	return fmt.Sprintf("metric name = %s tags = %v at %d value = %s", m.name, m.Tags(), m.tm.UnixNano(), val)
+	tags := m.TagsToString()
+
+	return fmt.Sprintf("metric name: %s tags: %s at %s value = %s", m.name, tags, m.tm.Format(time.UnixDate), val)
 }
 
 func (m *metric) Name() string {
@@ -101,6 +107,16 @@ func (m *metric) Tags() map[string]string {
 		tags[tag.Key] = tag.Value
 	}
 	return tags
+}
+
+func (m *metric) TagsToString() string {
+	var buf string
+
+	for _, tag := range m.tags {
+		buf = buf + fmt.Sprintf("%s=%s ", tag.Key, tag.Value)
+	}
+
+	return strings.TrimRight(buf, " ")
 }
 
 func (m *metric) Time() time.Time {

@@ -3,6 +3,7 @@ package agent
 import (
 	"stream-dns/metrics"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -11,7 +12,7 @@ const aggregatorName = "test"
 
 func TestGetOrCreateAggregateWhenItDoesntExist(t *testing.T) {
 	//got
-	metricsService := NewMetricsService(nil)
+	metricsService := NewMetricsService(nil, 100*time.Millisecond)
 
 	//do
 	aggregator := metricsService.GetOrCreateAggregator(aggregatorName, metrics.Counter)
@@ -22,7 +23,7 @@ func TestGetOrCreateAggregateWhenItDoesntExist(t *testing.T) {
 
 func TestGetOrCreateAggregateWhenItAlreadyExist(t *testing.T) {
 	//got
-	metricsService := NewMetricsService(nil)
+	metricsService := NewMetricsService(nil, 100*time.Millisecond)
 
 	//do
 	aggregator := metricsService.GetOrCreateAggregator(aggregatorName, metrics.Counter)
@@ -37,7 +38,7 @@ func TestGetOrCreateAggregateWhenItAlreadyExist(t *testing.T) {
 
 func TestGetAggregateWhenItDoesntExist(t *testing.T) {
 	//got
-	metricsService := NewMetricsService(nil)
+	metricsService := NewMetricsService(nil, 100*time.Millisecond)
 
 	//do
 	aggregator := metricsService.Get(aggregatorName)
@@ -48,7 +49,7 @@ func TestGetAggregateWhenItDoesntExist(t *testing.T) {
 
 func TestGetAggregateWhenItAlreadyExist(t *testing.T) {
 	//got
-	metricsService := NewMetricsService(nil)
+	metricsService := NewMetricsService(nil, 100*time.Millisecond)
 
 	//do
 	metricsService.GetOrCreateAggregator(aggregatorName, metrics.Counter)

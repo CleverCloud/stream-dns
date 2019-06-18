@@ -11,10 +11,11 @@ type MetricsService struct {
 	flushInterval time.Duration
 }
 
-func NewMetricsService(inputAgent chan metrics.Metric) MetricsService {
+func NewMetricsService(inputAgent chan metrics.Metric, flushInterval time.Duration) MetricsService {
 	return MetricsService{
-		InputAgent:  inputAgent,
-		aggregators: map[string]Aggregator{},
+		InputAgent:    inputAgent,
+		aggregators:   map[string]Aggregator{},
+		flushInterval: flushInterval,
 	}
 }
 

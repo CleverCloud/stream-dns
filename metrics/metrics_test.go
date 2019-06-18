@@ -71,3 +71,24 @@ func TestUpdateTheValueWhenTagAlreadyExist(t *testing.T) {
 	assert.Equal(t, "new", metric.Tags()["foo"])
 	assert.Equal(t, 1, metric.Value().(int))
 }
+
+func TestTagsToString(t *testing.T) {
+	tags := make(map[string]string)
+	tags["foo"] = "bar"
+	tags["bar"] = "foo"
+
+	// got
+	metric := NewMetric(
+		"name",
+		tags,
+		time.Now(),
+		Counter,
+		1,
+	)
+
+	// do
+	res := metric.TagsToString()
+
+	// want
+	assert.Equal(t, "foo=bar bar=foo", res)
+}
