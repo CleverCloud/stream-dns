@@ -2,7 +2,7 @@
 package output
 
 import (
-	log "github.com/sirupsen/logrus"
+	"fmt"
 	ms "stream-dns/metrics"
 )
 
@@ -17,10 +17,11 @@ func (a StdoutOutput) Connect() error {
 }
 
 func (a StdoutOutput) Write(metrics []ms.Metric) {
+	fmt.Print("Last metrics since the last flush:\n")
+
 	for _, m := range metrics {
-		log.WithFields(log.Fields{
-			"type": ms.TypeToString[m.Type()],
-			"name": m.Name(),
-		}).Info("[StdoutOutput] metric")
+		fmt.Printf("%s\n", m.ToString())
 	}
+
+	fmt.Print("\n\n")
 }
