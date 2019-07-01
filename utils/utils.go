@@ -64,6 +64,6 @@ func FormatAnswers(answers []dns.RR) string {
 // Name. TTL Class Type
 // The default String method put \t between each elements. This method replace this all \t by a whitespace
 func FormatAnswer(answer dns.RR) string {
-	h := answer.Header().String()
+	h := answer.String()
 	return strings.ReplaceAll(h, "\t", " ")
 }
