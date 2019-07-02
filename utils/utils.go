@@ -65,5 +65,5 @@ func FormatAnswers(answers []dns.RR) string {
 // The default String method put \t between each elements. This method replace this all \t by a whitespace
 func FormatAnswer(answer dns.RR) string {
 	h := answer.String()
-	return strings.ReplaceAll(h, "\t", " ")
+	return strings.Replace(h, "\t", " ", -1) // ReplaceAll is in tip, but not in latest release of go 1.11.1
 }
