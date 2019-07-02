@@ -49,7 +49,8 @@ type AgentConfig struct {
 }
 
 type AdministratorConfig struct {
-	Username string
-	Secret   string
-	Address  string
+	Username  string
+	Password  string
+	Address   string
+	JwtSecret string
 }

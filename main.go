@@ -65,8 +65,9 @@ func main() {
 		},
 		AdministratorConfig{
 			viper.GetString("admin_username"),
-			viper.GetString("admin_secret"),
+			viper.GetString("admin_password"),
 			viper.GetString("admin_address"),
+			viper.GetString("admin_jwtsecret"),
 		},
 		viper.GetString("pathdb"),
 		viper.GetString("sentry_dsn"),
