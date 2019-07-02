@@ -102,7 +102,7 @@ func registerHandlerForResolver(pattern string, db *bolt.DB, address string, met
 			if err != nil {
 				metrics <- ms.NewMetric("resolver-error", nil, nil, time.Now(), ms.Counter)
 				raven.CaptureError(err, map[string]string{"unit": "dns"})
-				log.Errorf("Resolver: %s for %s", err, qname, dns.TypeToString[qtype])
+				log.Errorf("Resolver: %s for %s %s", err, qname, dns.TypeToString[qtype])
 				m.SetRcode(r, dns.RcodeServerFailure)
 			} else {
 				for _, answer := range answers {
@@ -258,7 +258,7 @@ func findRecordsAndSetAsAnswersInMessage(qname string, qtype uint16, db *bolt.DB
 	if err != nil {
 		metrics <- ms.NewMetric("err-queries", nil, nil, time.Now(), ms.Counter)
 		raven.CaptureError(err, map[string]string{"unit": "dns", "action": "find records"})
-		log.Errorf("[dns]: %s for %s", err, qname, dns.TypeToString[qtype])
+		log.Errorf("[dns]: %s for %s %s", err, qname, dns.TypeToString[qtype])
 	}
 }
 
