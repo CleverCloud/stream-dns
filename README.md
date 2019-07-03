@@ -20,6 +20,7 @@ producer -->|dns record| Kafka
 Kafka(Kafka, Pulsar) -->|dns record| Consumer
 Consumer -.->|dns record/json| D
 D(dns serveur) -.- A
+D(dns serveur) -.- T(administrator)
 D -.- B(bbolt)
 C[client dns] -- query --> D
 D(dns serveur) -- answer --> C
@@ -62,6 +63,10 @@ The following environment variables can be set:
 | DNS_STATSD_ADDRESS         | string         | Address use to output the metrics in a statd format e.g: "127.0.0.1:8125"                       |
 | DNS_STATSD_PREFIX          | string         | (optional) Add a prefix on statd field metric                                                   |
 | DNS_DISALLOW_CNAME_ON_APEX | bool           | (optional) Disallow CNAME on a APEX domain                                                      |
+| DNS_ADMIN_USERNAME         | bool           | (optional) username for HTTP administrator service                                              |
+| DNS_ADMIN_PASSWORD         | bool           | (optional) password for HTTP administrator service                                              |
+| DNS_ADMIN_ADDRESS          | bool           | (optional) Address for the HTTP administrator                                                   |
+| DNS_ADMIN_JWTSECRET        | bool           | (optional) JWT secret for administrator credentials                                             |
 
 ## Run it
 
@@ -117,3 +122,22 @@ or with docker-compose to have stream-dns with a kafka and his zookeeper:
 ```bash
 docker-compose up
 ```
+
+## Administration tool
+
+The HTTP administrator server currently, allow you to search records with a pattern which can be usefull to check the current state of the database.
+
+For known, the HTTP administrator server is exposed through an optional JWT authentication system. To setup it, you just have to set the environment variables:
+
+* DNS_ADMIN_USERNAME
+* DNS_ADMIN_PASSWORD
+* DNS_ADMIN_ADDRESS
+* DNS_ADMIN_JWTSECRET
+
+### sign in
+
+`curl -X -v http://<address>/signin -d '{"username":"<your username>","password":"<your password>"}'`
+
+### Search records following a pattern
+
+`curl --cookie token=<JWT token> "http://<address>/search?pattern=<your pattern>`
