@@ -5,13 +5,14 @@ import (
 )
 
 type Config struct {
-	Kafka                KafkaConfig
-	Dns                  DnsConfig
-	Agent                AgentConfig
-	Statsd               StatsdConfig
-	PathDB               string
-	sentryDSN            string
-	DisallowCNAMEonAPEX  bool
+	Kafka               KafkaConfig
+	Dns                 DnsConfig
+	Agent               AgentConfig
+	Statsd              StatsdConfig
+	Administrator       AdministratorConfig
+	PathDB              string
+	sentryDSN           string
+	DisallowCNAMEonAPEX bool
 }
 
 type StatsdConfig struct {
@@ -45,4 +46,11 @@ type DnsConfig struct {
 type AgentConfig struct {
 	BufferSize    int
 	FlushInterval time.Duration
+}
+
+type AdministratorConfig struct {
+	Username  string
+	Password  string
+	Address   string
+	JwtSecret string
 }

@@ -63,6 +63,12 @@ func main() {
 			viper.GetString("statsd_address"),
 			viper.GetString("statsd_prefix"),
 		},
+		AdministratorConfig{
+			viper.GetString("admin_username"),
+			viper.GetString("admin_password"),
+			viper.GetString("admin_address"),
+			viper.GetString("admin_jwtsecret"),
+		},
 		viper.GetString("pathdb"),
 		viper.GetString("sentry_dsn"),
 		viper.GetBool("disallow_cname_on_apex"),
@@ -104,7 +110,13 @@ func main() {
 	go kafkaConsumer.Run(db, agent.Input, config.DisallowCNAMEonAPEX)
 
 	go serve(db, config.Dns, agent.Input)
-	
+
+	// Run HTTP Administrator
+	if config.Administrator.Address != "" {
+		httpAdministrator := NewHttpAdministrator(db, config.Administrator)
+		go httpAdministrator.StartHttpAdministrator()
+	}
+
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	s := <-sig
 
