@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/sha256"
 	"crypto/sha512"
+	"encoding/json"
 	"fmt"
 	"hash"
 	"strings"
@@ -171,6 +172,12 @@ func registerRecordAsBytesWithTheKeyInDB(db *bolt.DB, key []byte, record []byte,
 			}
 		}
 
+		record, err = tryUnmarshalRecord(record)
+
+		if err != nil {
+			return err
+		}
+
 		err = b.Put(key, record)
 
 		if err != nil {
@@ -181,6 +188,34 @@ func registerRecordAsBytesWithTheKeyInDB(db *bolt.DB, key []byte, record []byte,
 
 		return nil
 	})
+}
+
+// This method allow to accept as input: JSON array or object of record(s)
+// and this'll check that the record is well formated in order to avoid saving bad record.
+func tryUnmarshalRecord(record []byte) ([]byte, error) {
+	var recordArrayDecoded []Record
+	errArray := json.Unmarshal([]byte(record), &recordArrayDecoded)
+
+	if errArray != nil {
+		// Try to unmarshal Record as an object too (best effort)
+		var recDecoded Record
+		err := json.Unmarshal([]byte(record), &recDecoded)
+
+		if err != nil {
+			return nil, errArray
+		}
+
+		// Modify the record to be set in an array.
+		record, err = json.Marshal([]Record{recDecoded})
+
+		if err != nil {
+			return nil, err
+		}
+
+		return record, nil
+	}
+
+	return record, nil
 }
 
 func isCnameOnApexDomain(key []byte) bool {
