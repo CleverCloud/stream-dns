@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -15,6 +16,10 @@ type HttpAdministratorSuite struct {
 	suite.Suite
 	DB *bolt.DB
 }
+
+var creds = Credentials{Username: "test", Password: "test"}
+
+var adminConfig = AdministratorConfig{Username: "test", Password: "test", Address: "127.0.0.1:9001", JwtSecret: "a-secret"}
 
 func (suite *HttpAdministratorSuite) SetupTest() {
 	var err error
@@ -37,6 +42,76 @@ func (suite *HttpAdministratorSuite) SetupTest() {
 	}
 }
 
+func (suite *HttpAdministratorSuite) TestShouldNotBeSignedIfSendInCorrectCreds() {
+	username := "test"
+	creds := Credentials{Username: username, Password: "anuncorrectpassword"}
+	adminConfig := AdministratorConfig{Username: username, Password: "acorrectpassword", Address: "127.0.0.1:9001", JwtSecret: "a-secret"}
+
+	httpAdministrator := NewHttpAdministrator(suite.DB, adminConfig)
+	go httpAdministrator.StartHttpAdministrator()
+
+	time.Sleep(100 * time.Millisecond)
+
+	credsMarshal, err := json.Marshal(creds)
+	res, err := http.Post("http://127.0.0.1:9001/signin", "application/json", bytes.NewBuffer(credsMarshal))
+
+	if err != nil {
+		suite.Fail(err.Error())
+	}
+
+	suite.Equal(401, res.StatusCode)
+
+	cookies := res.Cookies()
+	suite.Equal(0, len(cookies))
+}
+
+func (suite *HttpAdministratorSuite) TestShouldGetBadRequestIfCredsAreMissing() {
+	username := "test"
+	adminConfig := AdministratorConfig{Username: username, Password: "acorrectpassword", Address: "127.0.0.1:9002", JwtSecret: "a-secret"}
+
+	httpAdministrator := NewHttpAdministrator(suite.DB, adminConfig)
+	go httpAdministrator.StartHttpAdministrator()
+
+	time.Sleep(100 * time.Millisecond)
+
+	res, err := http.Post("http://127.0.0.1:9002/signin", "application/json", bytes.NewBuffer([]byte{}))
+
+	if err != nil {
+		suite.Fail(err.Error())
+	}
+
+	suite.Equal(400, res.StatusCode)
+
+	cookies := res.Cookies()
+	suite.Equal(0, len(cookies))
+}
+
+func (suite *HttpAdministratorSuite) TestShouldBeSignedAndGetJWTIfSendCorrectCreds() {
+	username := "test"
+	password := "test"
+	creds := Credentials{Username: username, Password: password}
+	adminConfig := AdministratorConfig{Username: username, Password: password, Address: "127.0.0.1:9003", JwtSecret: "a-secret"}
+
+	httpAdministrator := NewHttpAdministrator(suite.DB, adminConfig)
+	go httpAdministrator.StartHttpAdministrator()
+
+	time.Sleep(100 * time.Millisecond)
+
+	credsMarshal, err := json.Marshal(creds)
+	res, err := http.Post("http://127.0.0.1:9003/signin", "application/json", bytes.NewBuffer(credsMarshal))
+
+	if err != nil {
+		suite.Fail(err.Error())
+	}
+
+	suite.Equal(200, res.StatusCode)
+
+	cookies := res.Cookies()
+	suite.Equal(1, len(cookies))
+	suite.Equal("token", cookies[0].Name)
+	suite.Assert().True(cookies[0].Value != "")
+}
+
 func (suite *HttpAdministratorSuite) TestSearchRecords() {
 	var records = [][]Record{
 		[]Record{Record{"www.example.com.", "A", "1.1.1.1", 3600, 0}},
@@ -49,9 +124,8 @@ func (suite *HttpAdministratorSuite) TestSearchRecords() {
 
 	pattern := "foo"
 
-	config := AdministratorConfig{"", "", "127.0.0.1:8081"}
-
-	httpAdministrator := NewHttpAdministrator(suite.DB, config)
+	adminConfigWithNoAuth := AdministratorConfig{Username: "", Password: "", Address: "127.0.0.1:8081", JwtSecret: "a-secret"}
+	httpAdministrator := NewHttpAdministrator(suite.DB, adminConfigWithNoAuth)
 	go httpAdministrator.StartHttpAdministrator()
 
 	time.Sleep(100 * time.Millisecond)
@@ -89,9 +163,8 @@ func (suite *HttpAdministratorSuite) TestSearchRecordsAndShouldFindNothing() {
 
 	pattern := "shoudlmatchnothing"
 
-	config := AdministratorConfig{"", "", "127.0.0.1:8081"}
-
-	httpAdministrator := NewHttpAdministrator(suite.DB, config)
+	adminConfigWithNoAuth := AdministratorConfig{Username: "", Password: "", Address: "127.0.0.1:8081", JwtSecret: "a-secret"}
+	httpAdministrator := NewHttpAdministrator(suite.DB, adminConfigWithNoAuth)
 	go httpAdministrator.StartHttpAdministrator()
 
 	time.Sleep(100 * time.Millisecond)
