@@ -44,7 +44,7 @@ func NewHttpAdministrator(db *bolt.DB, config AdministratorConfig) *HttpAdminist
 	}
 
 	s.servermux.HandleFunc("/signin", s.signin)
-	s.servermux.HandleFunc("/tools/dnsrecords/search", s.searchRecords)
+	s.servermux.HandleFunc("/search", s.searchRecords)
 
 	return &s
 }

@@ -130,7 +130,7 @@ func (suite *HttpAdministratorSuite) TestSearchRecords() {
 
 	time.Sleep(100 * time.Millisecond)
 
-	res, err := http.Get(fmt.Sprintf("http://127.0.0.1:8081/tools/dnsrecords/search?pattern=%s", pattern))
+	res, err := http.Get(fmt.Sprintf("http://127.0.0.1:8081/search?pattern=%s", pattern))
 	if err != nil {
 		suite.Fail(err.Error())
 	}
@@ -169,7 +169,7 @@ func (suite *HttpAdministratorSuite) TestSearchRecordsAndShouldFindNothing() {
 
 	time.Sleep(100 * time.Millisecond)
 
-	res, err := http.Get(fmt.Sprintf("http://127.0.0.1:8081/tools/dnsrecords/search?pattern=%s", pattern))
+	res, err := http.Get(fmt.Sprintf("http://127.0.0.1:8081/search?pattern=%s", pattern))
 	if err != nil {
 		suite.Fail(err.Error())
 	}
