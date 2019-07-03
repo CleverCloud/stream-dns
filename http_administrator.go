@@ -107,23 +107,25 @@ func (h *HttpAdministrator) signin(w http.ResponseWriter, r *http.Request) {
 func (h *HttpAdministrator) searchRecords(w http.ResponseWriter, r *http.Request) {
 	log.Infof("Got new administrator search request %s", requestToString(r))
 
-	c, err := r.Cookie("token")
-	if err != nil {
-		if err == http.ErrNoCookie {
-			log.Errorf("Missing jwt token for %s", requestToString(r))
-			w.WriteHeader(http.StatusUnauthorized)
+	if h.creds.Password != "" && h.creds.Username != "" {
+		c, err := r.Cookie("token")
+		if err != nil {
+			if err == http.ErrNoCookie {
+				log.Errorf("Missing jwt token for %s", requestToString(r))
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+
+			log.Errorf("bad request for %s", requestToString(r))
+			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 
-		log.Errorf("bad request for %s", requestToString(r))
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-
-	if isAuthJwtTokenValide(c, h.jwtSecret) == false {
-		log.Errorf("Unauthorized %s for %s at %s", r.RemoteAddr, requestToString(r), time.Now().Format(time.UnixDate))
-		w.WriteHeader(http.StatusUnauthorized)
-		return
+		if isAuthJwtTokenValide(c, h.jwtSecret) == false {
+			log.Errorf("Unauthorized %s for %s at %s", r.RemoteAddr, requestToString(r), time.Now().Format(time.UnixDate))
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
 	}
 
 	queryParams := r.URL.Query()
