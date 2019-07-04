@@ -118,7 +118,12 @@ func (k *KafkaConsumer) Run(db *bolt.DB, metrics chan ms.Metric, disallowCnameOn
 			log.Info("Got record for domain: ", string(m.Key))
 			metrics <- ms.NewMetric("nb-record", nil, nil, time.Now(), ms.Counter)
 
-			err := registerRecordAsBytesWithTheKeyInDB(db, m.Key, m.Value, disallowCnameOnApex)
+			record, err := tryUnmarshalRecord(m.Value)
+			if err != nil {
+				logRecordDiffIfTheRecordWasAlreayHere(db, m.Key, record)
+			}
+
+			err = registerRecordAsBytesWithTheKeyInDB(db, m.Key, m.Value, disallowCnameOnApex)
 
 			if err != nil {
 				log.Error(err)
@@ -172,7 +177,7 @@ func registerRecordAsBytesWithTheKeyInDB(db *bolt.DB, key []byte, record []byte,
 			}
 		}
 
-		record, err = tryUnmarshalRecord(record)
+		record, err = tryUnmarshalRecordAndEncodeResult(record)
 
 		if err != nil {
 			return err
@@ -192,7 +197,7 @@ func registerRecordAsBytesWithTheKeyInDB(db *bolt.DB, key []byte, record []byte,
 
 // This method allow to accept as input: JSON array or object of record(s)
 // and this'll check that the record is well formated in order to avoid saving bad record.
-func tryUnmarshalRecord(record []byte) ([]byte, error) {
+func tryUnmarshalRecord(record []byte) ([]Record, error) {
 	var recordArrayDecoded []Record
 	errArray := json.Unmarshal([]byte(record), &recordArrayDecoded)
 
@@ -205,20 +210,36 @@ func tryUnmarshalRecord(record []byte) ([]byte, error) {
 			return nil, errArray
 		}
 
-		// Modify the record to be set in an array.
-		record, err = json.Marshal([]Record{recDecoded})
-
-		if err != nil {
-			return nil, err
-		}
-
-		return record, nil
+		return []Record{recDecoded}, nil
 	}
 
-	return record, nil
+	return recordArrayDecoded, nil
+}
+
+func tryUnmarshalRecordAndEncodeResult(record []byte) ([]byte, error) {
+	tmp, err := tryUnmarshalRecord(record)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(tmp)
 }
 
 func isCnameOnApexDomain(key []byte) bool {
 	domain, qtype := u.ExtractQnameAndQtypeFromConsumerKey(key)
 	return u.IsApexDomain(domain) && dns.TypeCNAME == qtype
+}
+
+func logRecordDiffIfTheRecordWasAlreayHere(db *bolt.DB, key []byte, newRecord []Record) {
+	db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte("records"))
+		previousRecord := b.Get(key)
+
+		if previousRecord != nil {
+			log.Infof("The record %s has the previous state %s now the state will be %v", string(key), string(previousRecord), newRecord)
+		}
+
+		return nil
+	})
 }
