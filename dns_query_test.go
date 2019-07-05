@@ -12,6 +12,7 @@ import (
 
 	dns "github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/suite"
 	bolt "go.etcd.io/bbolt"
 )
@@ -68,8 +69,8 @@ func seedDBwithRecords(db *bolt.DB, records [][]Record) error {
 			if err != nil {
 				return err
 			}
-			
-			err = b.Put([]byte(rs[0].Name + "|" + rs[0].Type), []byte(recordAsJson))
+
+			err = b.Put([]byte(rs[0].Name+"|"+rs[0].Type), []byte(recordAsJson))
 
 			if err != nil {
 				return err
@@ -130,7 +131,7 @@ func (suite *DnsQuerySuite) TestShouldHandleQueryWithRecursionOnCNAME() {
 		[]Record{Record{"test.com.", "A", "148.171.11.12", 0, 0}, Record{"test.com.", "A", "163.172.235.159", 0, 0}},
 		[]Record{Record{"sub.test.com.", "CNAME", "test.com.", 0, 0}},
 		[]Record{Record{"sub.sub.test.com.", "CNAME", "sub.test.com.", 0, 0}},
-		[]Record{Record{"sub.sub.sub.test.com.", "CNAME", "sub.sub.test.com.", 0, 0}},		
+		[]Record{Record{"sub.sub.sub.test.com.", "CNAME", "sub.sub.test.com.", 0, 0}},
 	}
 
 	seedDBwithRecords(suite.DB, records)
@@ -198,6 +199,10 @@ func (suite *DnsQuerySuite) TestShouldHandleTheQueryWithTheResolver() {
 }
 
 func (suite *DnsQuerySuite) TestShouldHandleAxfrQuery() {
+	viper.Set(formatConfig(ALLOW_AXFR), true)
+	viper.SetEnvPrefix(ENV_PREFIX)
+	viper.AutomaticEnv()
+
 	var axfrRecords = [][]Record{
 		[]Record{Record{"zonetransfer.me.", "SOA", "1.1.1.1 2017042001 172800 900 1209600 3600", 3600, 0}},
 		[]Record{Record{"zonetransfer.me.", "NS", "nsztm1.digi.ninja.", 1200, 0}},
@@ -213,7 +218,7 @@ func (suite *DnsQuerySuite) TestShouldHandleAxfrQuery() {
 
 	axfrConfig := DnsConfig{":8053", true, false, []string{"zonetransfer.me.", "me."}, "9.9.9.9"}
 	go serve(suite.DB, axfrConfig, mockAgent.Input)
-	time.Sleep(100 * time.Millisecond) // Avoid connection refused because the DNS server is not ready 
+	time.Sleep(100 * time.Millisecond) // Avoid connection refused because the DNS server is not ready
 
 	client := new(dns.Client)
 	m := new(dns.Msg)
@@ -237,13 +242,13 @@ func (suite *DnsQuerySuite) TestShouldHandleAxfrQuery() {
 
 func (suite *DnsQuerySuite) TestShouldHandleAxfrQueryForUnsupportedZone() {
 	seedDBwithRecords(suite.DB, defaultSeedRecords)
-	
+
 	mockAgent := NewMockAgent()
 	go mockAgent.Run()
 
 	axfrConfig := DnsConfig{":8053", true, false, []string{"zonetransfer.me."}, "9.9.9.9"}
 	go serve(suite.DB, axfrConfig, mockAgent.Input)
-	time.Sleep(100 * time.Millisecond) // Avoid connection refused because the DNS server is not ready 
+	time.Sleep(100 * time.Millisecond) // Avoid connection refused because the DNS server is not ready
 
 	client := new(dns.Client)
 	m := new(dns.Msg)
@@ -262,7 +267,6 @@ func (suite *DnsQuerySuite) TestShouldHandleAxfrQueryForUnsupportedZone() {
 func TestDnsQueryTestSuite(t *testing.T) {
 	suite.Run(t, new(DnsQuerySuite))
 }
-
 
 func answerEqualToRecord(answer dns.RR, record Record) bool {
 	header := answer.Header()

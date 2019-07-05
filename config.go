@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"time"
 )
 
@@ -53,4 +54,19 @@ type AdministratorConfig struct {
 	Password  string
 	Address   string
 	JwtSecret string
+}
+
+const ENV_PREFIX = "DNS"
+
+// Allow zone transfer
+// Turned off by default because DNS zone transfer AXFR Requests may leak domain information
+const ALLOW_AXFR = "ALLOW_AXFR"
+
+// All env variables are prefixed by DNS to avoid naming collision.
+// Sometime we want to prevent that an env variable must be set to allow a feature.
+// This method format the tag for a better UX and remove ambiguity
+// ex: "allow_axfr" -> "DNS_ALLOW_AXFR"
+// which is the true configuration param and not "allow_axfr".
+func formatConfig(tag string) string {
+	return strings.ToUpper(ENV_PREFIX + "_" + ALLOW_AXFR)
 }
