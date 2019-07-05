@@ -118,12 +118,9 @@ func (k *KafkaConsumer) Run(db *bolt.DB, metrics chan ms.Metric, disallowCnameOn
 			log.Info("Got record for domain: ", string(m.Key))
 			metrics <- ms.NewMetric("nb-record", nil, nil, time.Now(), ms.Counter)
 
-			record, err := tryUnmarshalRecord(m.Value)
-			if err != nil {
-				logRecordDiffIfTheRecordWasAlreayHere(db, m.Key, record)
-			}
+			logRecordDiffIfTheRecordWasAlreayHere(db, m.Key, m.Value)
 
-			err = registerRecordAsBytesWithTheKeyInDB(db, m.Key, m.Value, disallowCnameOnApex)
+			err := registerRecordAsBytesWithTheKeyInDB(db, m.Key, m.Value, disallowCnameOnApex)
 
 			if err != nil {
 				log.Error(err)
@@ -189,7 +186,7 @@ func registerRecordAsBytesWithTheKeyInDB(db *bolt.DB, key []byte, record []byte,
 			return err
 		}
 
-		log.Infof("Saved for the domain %s.|%s:\n%s", domain, dns.TypeToString[qtype], string(record))
+		log.Infof("Saved record for the domain %s.|%s:\n%s", domain, dns.TypeToString[qtype], string(record))
 
 		return nil
 	})
@@ -231,15 +228,25 @@ func isCnameOnApexDomain(key []byte) bool {
 	return u.IsApexDomain(domain) && dns.TypeCNAME == qtype
 }
 
-func logRecordDiffIfTheRecordWasAlreayHere(db *bolt.DB, key []byte, newRecord []Record) {
-	db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte("records"))
-		previousRecord := b.Get(key)
+func logRecordDiffIfTheRecordWasAlreayHere(db *bolt.DB, key []byte, recordEncoded []byte) {
+	var previousRecordEncoded []byte = []byte{}
+	newRecord, err := tryUnmarshalRecord(recordEncoded)
 
-		if previousRecord != nil {
-			log.Infof("The record %s has the previous state %s now the state will be %v", string(key), string(previousRecord), newRecord)
+	if err == nil {
+		db.Update(func(tx *bolt.Tx) error {
+			b, _ := tx.CreateBucketIfNotExists([]byte("records"))
+			previousRecordEncoded = b.Get(key)
+			return nil
+		})
+
+		var previousRecord []Record
+		json.Unmarshal(previousRecordEncoded, &previousRecord)
+
+		if previousRecord != nil && recordsAreNotEqual(previousRecord, newRecord) {
+			log.WithFields(log.Fields{
+				"before": previousRecord,
+				"after":  newRecord,
+			}).Infof("The record %s has changed", string(key))
 		}
-
-		return nil
-	})
+	}
 }

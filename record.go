@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+
 	dns "github.com/miekg/dns"
 )
 
@@ -84,4 +85,23 @@ func RecordsToAnswer(records []Record) []dns.RR {
 	}
 
 	return rrs
+}
+
+func recordsAreEqual(a []Record, b []Record) bool {
+
+	if len(a) != len(b) {
+		return false
+	}
+
+	for i, _ := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+
+	return true
+}
+
+func recordsAreNotEqual(a []Record, b []Record) bool {
+	return recordsAreEqual(a, b) == false
 }
