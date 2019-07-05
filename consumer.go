@@ -118,6 +118,8 @@ func (k *KafkaConsumer) Run(db *bolt.DB, metrics chan ms.Metric, disallowCnameOn
 			log.Info("Got record for domain: ", string(m.Key))
 			metrics <- ms.NewMetric("nb-record", nil, nil, time.Now(), ms.Counter)
 
+			logRecordDiffIfTheRecordWasAlreayHere(db, m.Key, m.Value)
+
 			err := registerRecordAsBytesWithTheKeyInDB(db, m.Key, m.Value, disallowCnameOnApex)
 
 			if err != nil {
@@ -172,7 +174,7 @@ func registerRecordAsBytesWithTheKeyInDB(db *bolt.DB, key []byte, record []byte,
 			}
 		}
 
-		record, err = tryUnmarshalRecord(record)
+		record, err = tryUnmarshalRecordAndEncodeResult(record)
 
 		if err != nil {
 			return err
@@ -184,7 +186,7 @@ func registerRecordAsBytesWithTheKeyInDB(db *bolt.DB, key []byte, record []byte,
 			return err
 		}
 
-		log.Infof("Saved for the domain %s.|%s:\n%s", domain, dns.TypeToString[qtype], string(record))
+		log.Infof("Saved record for the domain %s.|%s:\n%s", domain, dns.TypeToString[qtype], string(record))
 
 		return nil
 	})
@@ -192,7 +194,7 @@ func registerRecordAsBytesWithTheKeyInDB(db *bolt.DB, key []byte, record []byte,
 
 // This method allow to accept as input: JSON array or object of record(s)
 // and this'll check that the record is well formated in order to avoid saving bad record.
-func tryUnmarshalRecord(record []byte) ([]byte, error) {
+func tryUnmarshalRecord(record []byte) ([]Record, error) {
 	var recordArrayDecoded []Record
 	errArray := json.Unmarshal([]byte(record), &recordArrayDecoded)
 
@@ -205,20 +207,46 @@ func tryUnmarshalRecord(record []byte) ([]byte, error) {
 			return nil, errArray
 		}
 
-		// Modify the record to be set in an array.
-		record, err = json.Marshal([]Record{recDecoded})
-
-		if err != nil {
-			return nil, err
-		}
-
-		return record, nil
+		return []Record{recDecoded}, nil
 	}
 
-	return record, nil
+	return recordArrayDecoded, nil
+}
+
+func tryUnmarshalRecordAndEncodeResult(record []byte) ([]byte, error) {
+	tmp, err := tryUnmarshalRecord(record)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(tmp)
 }
 
 func isCnameOnApexDomain(key []byte) bool {
 	domain, qtype := u.ExtractQnameAndQtypeFromConsumerKey(key)
 	return u.IsApexDomain(domain) && dns.TypeCNAME == qtype
+}
+
+func logRecordDiffIfTheRecordWasAlreayHere(db *bolt.DB, key []byte, recordEncoded []byte) {
+	var previousRecordEncoded []byte = []byte{}
+	newRecord, err := tryUnmarshalRecord(recordEncoded)
+
+	if err == nil {
+		db.Update(func(tx *bolt.Tx) error {
+			b, _ := tx.CreateBucketIfNotExists([]byte("records"))
+			previousRecordEncoded = b.Get(key)
+			return nil
+		})
+
+		var previousRecord []Record
+		json.Unmarshal(previousRecordEncoded, &previousRecord)
+
+		if previousRecord != nil && recordsAreNotEqual(previousRecord, newRecord) {
+			log.WithFields(log.Fields{
+				"before": previousRecord,
+				"after":  newRecord,
+			}).Infof("The record %s has changed", string(key))
+		}
+	}
 }
