@@ -10,6 +10,7 @@ import (
 	"github.com/getsentry/raven-go"
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
+	"github.com/spf13/viper"
 	bolt "go.etcd.io/bbolt"
 
 	ms "stream-dns/metrics"
@@ -153,7 +154,12 @@ func registerHandlerForZone(zone string, db *bolt.DB, metrics chan ms.Metric) {
 		m.SetReply(r)
 
 		if qtype == dns.TypeAXFR {
-			handlerZoneTransfer(qname, db, m, r, w, metrics)
+			if viper.GetBool(ALLOW_AXFR) {
+				handlerZoneTransfer(qname, db, m, r, w, metrics)
+			} else {
+				log.Errorf("[CONFIG] AXFR request is not allowed unless you turn option %s on.", formatConfig(ALLOW_AXFR))
+				w.WriteMsg(m)
+			}
 		} else {
 			findRecordsAndSetAsAnswersInMessage(qname, qtype, db, m, r, metrics)
 			w.WriteMsg(m)
