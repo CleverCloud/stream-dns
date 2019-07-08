@@ -199,7 +199,7 @@ func (suite *DnsQuerySuite) TestShouldHandleTheQueryWithTheResolver() {
 }
 
 func (suite *DnsQuerySuite) TestShouldHandleAxfrQuery() {
-	viper.Set(formatConfig(ALLOW_AXFR), true)
+	os.Setenv(formatConfig(ALLOW_AXFR), "true")
 	viper.SetEnvPrefix(ENV_PREFIX)
 	viper.AutomaticEnv()
 
