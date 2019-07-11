@@ -21,8 +21,12 @@ func intoWildcardQName(qname string) string {
 	return fmt.Sprintf("*%s", qname[s.Index(qname, "."):len(qname)-1])
 }
 
-func isNotWildcardName(qname string) bool {
-	return qname[0] != '*'
+func isWildcardQName(qname string) bool {
+	return qname[0] == '*'
+}
+
+func isNotWildcardQName(qname string) bool {
+	return isWildcardQName(qname) == false
 }
 
 func isSameQtypeOrItsCname(qtypeQuestion uint16, qtypeRecord uint16) bool {
@@ -60,7 +64,7 @@ func getRecordsFromBucket(bucket *bolt.Bucket, qname string) ([][]Record, error)
 		}
 	}
 
-	if isNotWildcardName(qname) && len(records) == 0 {
+	if isNotWildcardQName(qname) && len(records) == 0 {
 		c.First()
 
 		prefixWildcard := []byte(intoWildcardQName(qname))
@@ -235,6 +239,8 @@ func findRecordsAndSetAsAnswersInMessage(qname string, qtype uint16, db *bolt.DB
 			for _, r := range recordsFoundByRecursionOnCNAME {
 				records = append(records, r)
 			}
+
+			replaceWildcardByQnameInAnswer(qname, records)
 		}
 
 		if err != nil {
@@ -377,4 +383,15 @@ func sendRecordsByChunk(records [][]Record, sizeChunk int, m *dns.Msg, w dns.Res
 	}
 
 	m.Answer = nil
+}
+
+func replaceWildcardByQnameInAnswer(qname string, records [][]Record) {
+	if len(records) > 0 {
+		record := records[0]
+
+		if isWildcardQName(record[0].Name) && record[0].Type == dns.TypeToString[dns.TypeCNAME] {
+			record[0].Name = qname
+			record[0].Ttl = 0
+		}
+	}
 }
