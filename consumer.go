@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	a "stream-dns/agent"
 	ms "stream-dns/metrics"
 	u "stream-dns/utils"
 
@@ -22,7 +23,7 @@ import (
 )
 
 type consumer interface {
-	Run(db *bolt.DB, metrics chan ms.Metric) error
+	Run(db *bolt.DB, metricsService a.MetricsService) error
 }
 
 type KafkaConsumer struct {
@@ -109,14 +110,14 @@ func NewKafkaConsumer(config KafkaConfig) (*KafkaConsumer, error) {
 
 // Run the kafka agent consumer which read all the records from the Kafka topics
 // Blocking call
-func (k *KafkaConsumer) Run(db *bolt.DB, metrics chan ms.Metric, disallowCnameOnApex bool) error {
-	log.Info("Kafka consumer connected to the kafka nodes: ", k.config.Address, " and ready to consume")
+func (k *KafkaConsumer) Run(db *bolt.DB, metricsService *a.MetricsService, disallowCnameOnApex bool) error {
+	log.Infof("Kafka consumer connected to the kafka nodes: %s  and ready to consume", k.config.Address)
 
 	for {
 		select {
 		case m, ok := <-k.consumer.Messages():
 			log.Info("Got record for domain: ", string(m.Key))
-			metrics <- ms.NewMetric("nb-record", nil, nil, time.Now(), ms.Counter)
+			metricsService.GetOrCreateAggregator("nb-record", ms.Counter, false).(a.AggregatorCounter).Inc(1)
 
 			logRecordDiffIfTheRecordWasAlreayHere(db, m.Key, m.Value)
 
@@ -125,6 +126,9 @@ func (k *KafkaConsumer) Run(db *bolt.DB, metrics chan ms.Metric, disallowCnameOn
 			if err != nil {
 				log.Error(err)
 				raven.CaptureError(err, nil)
+				metricsService.GetOrCreateAggregator("bad-record", ms.Counter, false).(a.AggregatorCounter).Inc(1)
+			} else {
+				metricsService.GetOrCreateAggregator("nb-record-saved", ms.Counter, false).(a.AggregatorCounter).Inc(1)
 			}
 
 			if !ok {
@@ -132,7 +136,7 @@ func (k *KafkaConsumer) Run(db *bolt.DB, metrics chan ms.Metric, disallowCnameOn
 			}
 
 		case err := <-k.consumer.Errors():
-			metrics <- ms.NewMetric("kafka-consumer", nil, nil, time.Now(), ms.Counter)
+			metricsService.GetOrCreateAggregator("kafka-consumer-error", ms.Counter, false).(a.AggregatorCounter).Inc(1)
 			log.WithError(err).Error("Kafka consumer error")
 		}
 	}
@@ -171,6 +175,7 @@ func registerRecordAsBytesWithTheKeyInDB(db *bolt.DB, key []byte, record []byte,
 				b.Delete([]byte(domain + ".|" + dns.TypeToString[dns.TypeTXT]))
 				b.Delete([]byte(domain + ".|" + dns.TypeToString[dns.TypePTR]))
 				b.Delete([]byte(domain + ".|" + dns.TypeToString[dns.TypeMX]))
+				//FIXME update the nb of record in the metrics
 			}
 		}
 

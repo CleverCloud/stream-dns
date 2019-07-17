@@ -1,11 +1,11 @@
 // Output that follow the https://github.com/etsy/statsd spec.
-// 
 package output
 
 import (
+	ms "stream-dns/metrics"
+
 	"github.com/cactus/go-statsd-client/statsd"
 	log "github.com/sirupsen/logrus"
-	ms "stream-dns/metrics"
 )
 
 type StatsdOutput struct {
@@ -18,12 +18,12 @@ func NewStatsdOutput(address string, prefix string) *StatsdOutput {
 	return &StatsdOutput{
 		Address: address,
 		Prefix:  prefix,
-		Client: nil,
+		Client:  nil,
 	}
 }
 
 func (a *StatsdOutput) Name() string {
-    	return "statsd"
+	return "statsd"
 }
 
 func (a *StatsdOutput) Connect() error {
@@ -42,30 +42,9 @@ func (a *StatsdOutput) Write(metrics []ms.Metric) {
 	for _, m := range metrics {
 		switch m.Type() {
 		case ms.Counter:
-			if len(m.Fields()) > 0 {
-				// Increment the counter for each fields
-				// We use the format: name.field
-				for key, val := range m.Fields() {
-					if v, ok := val.(int64); ok {
-						a.Client.Inc(m.Name()+"."+key, v, 1.0)
-					} else {
-						log.Error("the metric: ", m.Name(), "has a field: ", key, " which doesn't have the type int64")
-					}
-				}
-			} else {
-				//log.Print(a.client)
-				a.Client.Inc(m.Name(), 1, 1.0)
-			}
+			a.Client.Inc(m.Name(), m.Value().(int64), 1.0)
 		case ms.Gauge:
-			for key, val := range m.Fields() {
-				if v, ok := val.(int64); ok {
-					a.Client.Gauge(m.Name()+"."+key, v, 1.0)
-				} else {
-					log.Error("the metric: ", m.Name(), "has a field: ", key, " which doesn't have the type int64")
-				}
-			}
-		case ms.Message:
-			log.Warn("Statsd doesn't support the message metric type")
+			a.Client.Gauge(m.Name(), m.Value().(int64), 1.0)
 		default:
 			log.Warn("Unsupported metrics type by statsd: ", m.Type())
 		}

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	a "stream-dns/agent"
 	"stream-dns/metrics"
 
 	dns "github.com/miekg/dns"
@@ -90,10 +91,9 @@ func (suite *DnsQuerySuite) TearDownTest() {
 func (suite *DnsQuerySuite) TestShouldHandleQueryForManagedZone() {
 	seedDBwithRecords(suite.DB, defaultSeedRecords)
 
-	mockAgent := NewMockAgent()
-	go mockAgent.Run()
+	mockMetricsService := NewMockMetricsService()
 
-	go serve(suite.DB, defaultDnsConfig, mockAgent.Input)
+	go serve(suite.DB, defaultDnsConfig, &mockMetricsService)
 
 	// Avoid connection refused because the DNS server is not ready
 	// FIXME: I tried to set the Timeout + Dialtimeout for the client
@@ -136,10 +136,10 @@ func (suite *DnsQuerySuite) TestShouldHandleQueryWithRecursionOnCNAME() {
 
 	seedDBwithRecords(suite.DB, records)
 
-	mockAgent := NewMockAgent()
-	go mockAgent.Run()
+	mockMetricsService := NewMockMetricsService()
+
 	dnsConfig := DnsConfig{":8053", true, false, []string{"test.com"}, "9.9.9.9"}
-	go serve(suite.DB, dnsConfig, mockAgent.Input)
+	go serve(suite.DB, dnsConfig, &mockMetricsService)
 
 	// Avoid connection refused because the DNS server is not ready
 	// FIXME: I tried to set the Timeout + Dialtimeout for the client
@@ -172,10 +172,9 @@ func (suite *DnsQuerySuite) TestShouldHandleQueryWithRecursionOnCNAME() {
 }
 
 func (suite *DnsQuerySuite) TestShouldHandleTheQueryWithTheResolver() {
-	mockAgent := NewMockAgent()
-	go mockAgent.Run()
+	mockMetricsService := NewMockMetricsService()
 
-	go serve(suite.DB, defaultDnsConfig, mockAgent.Input)
+	go serve(suite.DB, defaultDnsConfig, &mockMetricsService)
 	time.Sleep(100 * time.Millisecond)
 
 	client := new(dns.Client)
@@ -213,11 +212,10 @@ func (suite *DnsQuerySuite) TestShouldHandleAxfrQuery() {
 
 	seedDBwithRecords(suite.DB, axfrRecords)
 
-	mockAgent := NewMockAgent()
-	go mockAgent.Run()
+	mockMetricsService := NewMockMetricsService()
 
 	axfrConfig := DnsConfig{":8053", true, false, []string{"zonetransfer.me.", "me."}, "9.9.9.9"}
-	go serve(suite.DB, axfrConfig, mockAgent.Input)
+	go serve(suite.DB, axfrConfig, &mockMetricsService)
 	time.Sleep(100 * time.Millisecond) // Avoid connection refused because the DNS server is not ready
 
 	client := new(dns.Client)
@@ -243,11 +241,10 @@ func (suite *DnsQuerySuite) TestShouldHandleAxfrQuery() {
 func (suite *DnsQuerySuite) TestShouldHandleAxfrQueryForUnsupportedZone() {
 	seedDBwithRecords(suite.DB, defaultSeedRecords)
 
-	mockAgent := NewMockAgent()
-	go mockAgent.Run()
+	mockMetricsService := NewMockMetricsService()
 
 	axfrConfig := DnsConfig{":8053", true, false, []string{"zonetransfer.me."}, "9.9.9.9"}
-	go serve(suite.DB, axfrConfig, mockAgent.Input)
+	go serve(suite.DB, axfrConfig, &mockMetricsService)
 	time.Sleep(100 * time.Millisecond) // Avoid connection refused because the DNS server is not ready
 
 	client := new(dns.Client)
@@ -278,12 +275,16 @@ type MockAgent struct {
 	Input chan metrics.Metric
 }
 
-func NewMockAgent() MockAgent {
-	a := MockAgent{
+func NewMockMetricsService() a.MetricsService {
+	agent := MockAgent{
 		Input: make(chan metrics.Metric),
 	}
 
-	return a
+	go agent.Run()
+
+	metricsService := a.NewMetricsService(agent.Input, 100*time.Millisecond)
+
+	return metricsService
 }
 
 // Deadletter all the metrics messages

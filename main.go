@@ -3,11 +3,10 @@ package main
 import (
 	"os"
 	"os/signal"
-	"syscall"
-
-	"stream-dns/agent"
-	ms "stream-dns/metrics"
+	a "stream-dns/agent"
 	"stream-dns/output"
+	"syscall"
+	"time"
 
 	"github.com/getsentry/raven-go"
 	dns "github.com/miekg/dns"
@@ -16,9 +15,9 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
-func serve(db *bolt.DB, config DnsConfig, metrics chan ms.Metric) {
-	registerHandlerForResolver(".", db, config.ResolverAddress, metrics)
-	registerHandlerForZones(config.Zones, db, metrics)
+func serve(db *bolt.DB, config DnsConfig, metricsService *a.MetricsService) {
+	registerHandlerForResolver(".", db, config.ResolverAddress, metricsService)
+	registerHandlerForZones(config.Zones, db, metricsService)
 
 	if config.Udp {
 		serverudp := &dns.Server{Addr: config.Address, Net: "udp", TsigSecret: nil}
@@ -87,15 +86,17 @@ func main() {
 	}
 
 	// Metrics
-	agent := agent.NewAgent(agent.Config{config.Agent.BufferSize, config.Agent.FlushInterval})
+	agent := a.NewAgent(a.Config{config.Agent.BufferSize, config.Agent.FlushInterval})
 
-	// Outputs agent
+	// Outputs metrics
 
 	// Setup Statsd is config exist
 	if config.Statsd.Address != "" {
 		statsdOutput := output.NewStatsdOutput(config.Statsd.Address, config.Statsd.Prefix)
 		agent.AddOutput(statsdOutput)
 	}
+
+	agent.AddOutput(output.StdoutOutput{})
 
 	go agent.Run()
 
@@ -107,9 +108,11 @@ func main() {
 		raven.CaptureError(err, nil)
 	}
 
-	go kafkaConsumer.Run(db, agent.Input, config.DisallowCNAMEonAPEX)
+	metricsService := a.NewMetricsService(agent.Input, config.Agent.FlushInterval*time.Millisecond)
 
-	go serve(db, config.Dns, agent.Input)
+	go kafkaConsumer.Run(db, &metricsService, config.DisallowCNAMEonAPEX)
+
+	go serve(db, config.Dns, &metricsService)
 
 	// Run HTTP Administrator
 	if config.Administrator.Address != "" {

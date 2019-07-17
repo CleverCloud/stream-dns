@@ -34,9 +34,9 @@ func TestAgentFlushTheMetricsWhenBufferIsFilled(t *testing.T) {
 	go agent.Run()
 
 	// do
-	agent.Input <- ms.NewMetric("bar", nil, nil, time.Now(), ms.Counter)
-	agent.Input <- ms.NewMetric("foo", nil, nil, time.Now(), ms.Counter)
-	agent.Input <- ms.NewMetric("rab", nil, nil, time.Now(), ms.Counter)
+	agent.Input <- ms.NewMetric("bar", nil, time.Now(), ms.Counter, 1)
+	agent.Input <- ms.NewMetric("foo", nil, time.Now(), ms.Counter, 1)
+	agent.Input <- ms.NewMetric("rab", nil, time.Now(), ms.Counter, 1)
 
 	// want
 	select {
@@ -58,8 +58,8 @@ func TestAgentFlushIncompleteBufferWhenHeGotATimeout(t *testing.T) {
 	go agent.Run()
 
 	// do
-	agent.Input <- ms.NewMetric("bar", nil, nil, time.Now(), ms.Counter)
-	agent.Input <- ms.NewMetric("foo", nil, nil, time.Now(), ms.Counter)
+	agent.Input <- ms.NewMetric("bar", nil, time.Now(), ms.Counter, 1)
+	agent.Input <- ms.NewMetric("foo", nil, time.Now(), ms.Counter, 1)
 	// NOTE: We only send 2 metrics here and we defined the buffer size to 3.
 	// The agent should timeout and send an incomplete buffer
 

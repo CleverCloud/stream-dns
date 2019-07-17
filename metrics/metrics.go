@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -11,13 +12,11 @@ const (
 	_ ValueType = iota
 	Counter
 	Gauge
-	Message
 )
 
 var TypeToString = map[ValueType]string{
 	Counter: "counter",
 	Gauge:   "gauge",
-	Message: "message",
 }
 
 type Tag struct {
@@ -25,59 +24,51 @@ type Tag struct {
 	Value string
 }
 
-type Field struct {
-	Key   string
-	Value interface{}
-}
-
 type Metric interface {
-	// data structure functions
 	Name() string
 	Tags() map[string]string
-	Fields() map[string]interface{}
 	Time() time.Time
 	Type() ValueType
 
 	SetName(name string)
 
-	// Tag functions
+	ToString() string
+
 	GetTag(key string) (string, bool)
 	HasTag(key string) bool
 	AddTag(key, value string)
-
-	// Field functions
-	GetField(key string) (interface{}, bool)
-	HasField(key string) bool
-	AddField(key string, value interface{})
+	TagsToString() string
 
 	SetTime(t time.Time)
 
 	SetAggregate(bool)
 	IsAggregate() bool
+
+	Value() interface{}
 }
 
 type metric struct {
 	name      string
 	tags      []Tag
-	fields    []Field
 	tm        time.Time
 	tp        ValueType
+	value     interface{}
 	aggregate bool
 }
 
 func NewMetric(
 	name string,
 	tags map[string]string,
-	fields map[string]interface{},
 	tm time.Time,
-	tp ...ValueType,
+	tp ValueType,
+	value interface{},
 ) Metric {
 	m := &metric{
-		name:   name,
-		tags:   nil,
-		fields: nil,
-		tm:     tm,
-		tp:     tp[0],
+		name:  name,
+		tags:  nil,
+		tm:    tm,
+		tp:    tp,
+		value: value,
 	}
 
 	if len(tags) > 0 {
@@ -88,17 +79,22 @@ func NewMetric(
 		}
 	}
 
-	m.fields = make([]Field, 0, len(fields))
-
-	for k, v := range fields {
-		m.AddField(k, v)
-	}
-
 	return m
 }
 
 func (m *metric) ToString() string {
-	return fmt.Sprintf("%s %v %v %d", m.name, m.Tags(), m.Fields(), m.tm.UnixNano())
+	var val string
+
+	switch m.tp {
+	case Counter, Gauge:
+		val = fmt.Sprintf("%d", m.value)
+	default:
+		val = "[undefined type]"
+	}
+
+	tags := m.TagsToString()
+
+	return fmt.Sprintf("metric name: %s tags: %s at %s value = %s", m.name, tags, m.tm.UTC().String(), val)
 }
 
 func (m *metric) Name() string {
@@ -113,13 +109,14 @@ func (m *metric) Tags() map[string]string {
 	return tags
 }
 
-func (m *metric) Fields() map[string]interface{} {
-	fields := make(map[string]interface{}, len(m.fields))
-	for _, field := range m.fields {
-		fields[field.Key] = field.Value
+func (m *metric) TagsToString() string {
+	var buf string
+
+	for _, tag := range m.tags {
+		buf = buf + fmt.Sprintf("%s=%s ", tag.Key, tag.Value)
 	}
 
-	return fields
+	return strings.TrimRight(buf, " ")
 }
 
 func (m *metric) Time() time.Time {
@@ -163,34 +160,6 @@ func (m *metric) GetTag(key string) (string, bool) {
 	return "", false
 }
 
-func (m *metric) AddField(key string, value interface{}) {
-	for i, field := range m.fields {
-		if key == field.Key {
-			m.fields[i] = Field{key, value}
-			return
-		}
-	}
-	m.fields = append(m.fields, Field{key, value})
-}
-
-func (m *metric) HasField(key string) bool {
-	for _, field := range m.fields {
-		if field.Key == key {
-			return true
-		}
-	}
-	return false
-}
-
-func (m *metric) GetField(key string) (interface{}, bool) {
-	for _, field := range m.fields {
-		if field.Key == key {
-			return field.Value, true
-		}
-	}
-	return nil, false
-}
-
 func (m *metric) SetTime(t time.Time) {
 	m.tm = t
 }
@@ -201,4 +170,9 @@ func (m *metric) SetAggregate(b bool) {
 
 func (m *metric) IsAggregate() bool {
 	return m.aggregate
+}
+
+// You must in the caller, cast the value into the correct type bu using the typevalue field
+func (m *metric) Value() interface{} {
+	return m.value
 }

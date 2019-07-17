@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	s "strings"
-	"time"
 
 	"github.com/getsentry/raven-go"
 	"github.com/miekg/dns"
@@ -13,6 +12,7 @@ import (
 	"github.com/spf13/viper"
 	bolt "go.etcd.io/bbolt"
 
+	a "stream-dns/agent"
 	ms "stream-dns/metrics"
 	u "stream-dns/utils"
 )
@@ -84,14 +84,14 @@ func getRecordsFromBucket(bucket *bolt.Bucket, qname string) ([][]Record, error)
 	return records, nil
 }
 
-func registerHandlerForResolver(pattern string, db *bolt.DB, address string, metrics chan ms.Metric) {
+func registerHandlerForResolver(pattern string, db *bolt.DB, address string, metricsService *a.MetricsService) {
 	dns.HandleFunc(pattern, func(w dns.ResponseWriter, r *dns.Msg) {
 		qname := r.Question[0].Name
 		qtype := r.Question[0].Qtype
 		remoteAddr := w.RemoteAddr()
 
 		log.Infof("[DNS] Got a request from %s::%s for unsupported zone: %s for the type %s", remoteAddr.Network(), remoteAddr.String(), qname, dns.TypeToString[qtype])
-		metrics <- ms.NewMetric("resolver", nil, nil, time.Now(), ms.Counter)
+		metricsService.GetOrCreateAggregator("resolver-request", ms.Counter, true).(a.AggregatorCounter).Inc(1)
 
 		m := new(dns.Msg)
 		m.SetReply(r)
@@ -105,7 +105,8 @@ func registerHandlerForResolver(pattern string, db *bolt.DB, address string, met
 			answers, err := resolverLookup(address, qname, qtype)
 
 			if err != nil {
-				metrics <- ms.NewMetric("resolver-error", nil, nil, time.Now(), ms.Counter)
+				metricsService.GetOrCreateAggregator("resolver-request-error", ms.Counter, true).(a.AggregatorCounter).Inc(1)
+
 				raven.CaptureError(err, map[string]string{"unit": "dns"})
 				log.Errorf("Resolver: %s for %s %s", err, qname, dns.TypeToString[qtype])
 				m.SetRcode(r, dns.RcodeServerFailure)
@@ -118,6 +119,8 @@ func registerHandlerForResolver(pattern string, db *bolt.DB, address string, met
 		}
 
 		w.WriteMsg(m)
+		metricsService.GetOrCreateAggregator("resolver-request-answered", ms.Counter, true).(a.AggregatorCounter).Inc(1)
+
 		answersfmt := u.FormatAnswers(m.Answer)
 		log.Infof("[DNS] Answered to %s::%s request: %s with the type %s - found %d answer(s): \n %s",
 			remoteAddr.Network(), remoteAddr.String(), qname, dns.TypeToString[qtype], len(m.Answer), answersfmt)
@@ -139,33 +142,43 @@ func resolverLookup(address string, qname string, qtype uint16) ([]dns.RR, error
 	return answers, nil
 }
 
-func registerHandlerForZones(zones []string, db *bolt.DB, metrics chan ms.Metric) {
+func registerHandlerForZones(zones []string, db *bolt.DB, metricsService *a.MetricsService) {
 	for _, z := range zones {
-		registerHandlerForZone(z, db, metrics)
+		registerHandlerForZone(z, db, metricsService)
 	}
 }
 
 // Register a zone e.g: foo.com with the default handler
-func registerHandlerForZone(zone string, db *bolt.DB, metrics chan ms.Metric) {
+func registerHandlerForZone(zone string, db *bolt.DB, metricsService *a.MetricsService) {
 	dns.HandleFunc(zone, func(w dns.ResponseWriter, r *dns.Msg) {
 		qname := r.Question[0].Name
 		qtype := r.Question[0].Qtype
 
 		remoteAddr := w.RemoteAddr()
 		log.Infof("[DNS] Got a request from %s::%s for %s with the type %s ", remoteAddr.Network(), remoteAddr.String(), r.Question[0].Name, dns.TypeToString[qtype])
+		metricsService.GetOrCreateAggregator("nb-dns-requests", ms.Counter, true).(a.AggregatorCounter).Inc(1)
 
 		m := new(dns.Msg)
 		m.SetReply(r)
 
 		if qtype == dns.TypeAXFR {
 			if viper.GetBool(ALLOW_AXFR) {
-				handlerZoneTransfer(qname, db, m, r, w, metrics)
+				handlerZoneTransfer(qname, db, m, r, w, metricsService)
 			} else {
 				log.Errorf("[CONFIG] AXFR request is not allowed unless you turn option %s on.", formatConfig(ALLOW_AXFR))
 				w.WriteMsg(m)
 			}
 		} else {
-			findRecordsAndSetAsAnswersInMessage(qname, qtype, db, m, r, metrics)
+			err := findRecordsAndSetAsAnswersInMessage(qname, qtype, db, m, r, metricsService)
+
+			if err != nil {
+				metricsService.GetOrCreateAggregator("requests-error", ms.Counter, true).(a.AggregatorCounter).Inc(1)
+				raven.CaptureError(err, map[string]string{"unit": "dns", "action": "find records"})
+				log.Fatal("[dns]: ", err)
+			} else {
+				metricsService.GetOrCreateAggregator("requests-answered-successfully", ms.Counter, true).(a.AggregatorCounter).Inc(1)
+			}
+
 			w.WriteMsg(m)
 			answersfmt := u.FormatAnswers(m.Answer)
 			log.Infof("[DNS] Answered to %s::%s request: %s with the type %s - found %d answer(s): \n%s",
@@ -223,9 +236,7 @@ func recursionOnCname(b *bolt.Bucket, record Record) [][]Record {
 	return records
 }
 
-func findRecordsAndSetAsAnswersInMessage(qname string, qtype uint16, db *bolt.DB, m *dns.Msg, r *dns.Msg, metrics chan ms.Metric) {
-	metrics <- ms.NewMetric("queries", nil, nil, time.Now(), ms.Counter)
-
+func findRecordsAndSetAsAnswersInMessage(qname string, qtype uint16, db *bolt.DB, m *dns.Msg, r *dns.Msg, metricsService *a.MetricsService) error {
 	err := db.View(func(tx *bolt.Tx) error {
 		// TODO: check if the bucket already exists and has keys
 		recordsBucket := tx.Bucket([]byte("records"))
@@ -245,6 +256,7 @@ func findRecordsAndSetAsAnswersInMessage(qname string, qtype uint16, db *bolt.DB
 
 		if err != nil {
 			raven.CaptureError(err, map[string]string{"unit": "dns", "action": "find records"})
+			metricsService.GetOrCreateAggregator("fail-find-bbolt", ms.Counter, true).(a.AggregatorCounter).Inc(1)
 			return err
 		} else {
 			if len(records) > 0 {
@@ -268,10 +280,12 @@ func findRecordsAndSetAsAnswersInMessage(qname string, qtype uint16, db *bolt.DB
 	})
 
 	if err != nil {
-		metrics <- ms.NewMetric("err-queries", nil, nil, time.Now(), ms.Counter)
+		metricsService.GetOrCreateAggregator("err-queries", ms.Counter, true).(a.AggregatorCounter).Inc(1)
 		raven.CaptureError(err, map[string]string{"unit": "dns", "action": "find records"})
 		log.Errorf("[dns]: %s for %s %s", err, qname, dns.TypeToString[qtype])
 	}
+
+	return nil
 }
 
 // e.g: domai.com.|A -> domain.com.
@@ -287,14 +301,16 @@ func extractDomainFromKey(key []byte) []byte {
 // grouped into response messages in any particular way.
 //
 // More info RFC5936: https://tools.ietf.org/html/rfc5936#section-2.2
-func handlerZoneTransfer(qname string, db *bolt.DB, m *dns.Msg, r *dns.Msg, w dns.ResponseWriter, metrics chan ms.Metric) {
+func handlerZoneTransfer(qname string, db *bolt.DB, m *dns.Msg, r *dns.Msg, w dns.ResponseWriter, metricsService *a.MetricsService) {
 	log.Info("[DNS] request a transfer zone for ", qname)
-	metrics <- ms.NewMetric("queries-axfr", nil, nil, time.Now(), ms.Counter)
+	metricsService.GetOrCreateAggregator("nb-axfr-queries", ms.Counter, true).(a.AggregatorCounter).Inc(1)
 
 	soa, records, err := findRecordsAndSOAForAXFRInDB(db, qname)
 
 	if err != nil {
-		metrics <- ms.NewMetric("err-queries-axfr", nil, nil, time.Now(), ms.Counter)
+		metricsService.GetOrCreateAggregator("error-axfr-queries", ms.Counter, true).(a.AggregatorCounter).Inc(1)
+
+		metricsService.GetOrCreateAggregator("error-axfr-queries", ms.Counter, true).(a.AggregatorCounter).Inc(1)
 		raven.CaptureError(err, map[string]string{"unit": "dns", "action": "axfr"})
 		log.Fatal("[AXFR] ", err)
 		m.SetRcode(r, dns.RcodeServerFailure)
