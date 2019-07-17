@@ -94,7 +94,7 @@ func (m *metric) ToString() string {
 
 	tags := m.TagsToString()
 
-	return fmt.Sprintf("metric name: %s tags: %s at %s value = %s", m.name, tags, m.tm.Format(time.UnixDate), val)
+	return fmt.Sprintf("metric name: %s tags: %s at %s value = %s", m.name, tags, m.tm.UTC().String(), val)
 }
 
 func (m *metric) Name() string {
