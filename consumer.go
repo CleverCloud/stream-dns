@@ -110,14 +110,14 @@ func NewKafkaConsumer(config KafkaConfig) (*KafkaConsumer, error) {
 
 // Run the kafka agent consumer which read all the records from the Kafka topics
 // Blocking call
-func (k *KafkaConsumer) Run(db *bolt.DB, metricsService a.MetricsService, disallowCnameOnApex bool) error {
-	log.Info("Kafka consumer connected to the kafka nodes: ", k.config.Address, " and ready to consume")
+func (k *KafkaConsumer) Run(db *bolt.DB, metricsService *a.MetricsService, disallowCnameOnApex bool) error {
+	log.Infof("Kafka consumer connected to the kafka nodes: %s  and ready to consume", k.config.Address)
 
 	for {
 		select {
 		case m, ok := <-k.consumer.Messages():
 			log.Info("Got record for domain: ", string(m.Key))
-			metricsService.GetOrCreateAggregator("nb-record", ms.Counter).(a.AggregatorCounter).Inc(1)
+			metricsService.GetOrCreateAggregator("nb-record", ms.Counter, false).(a.AggregatorCounter).Inc(1)
 
 			logRecordDiffIfTheRecordWasAlreayHere(db, m.Key, m.Value)
 
@@ -126,9 +126,9 @@ func (k *KafkaConsumer) Run(db *bolt.DB, metricsService a.MetricsService, disall
 			if err != nil {
 				log.Error(err)
 				raven.CaptureError(err, nil)
-				metricsService.GetOrCreateAggregator("bad-record", ms.Counter).(a.AggregatorCounter).Inc(1)
+				metricsService.GetOrCreateAggregator("bad-record", ms.Counter, false).(a.AggregatorCounter).Inc(1)
 			} else {
-				metricsService.GetOrCreateAggregator("nb-record-saved", ms.Counter).(a.AggregatorCounter).Inc(1)
+				metricsService.GetOrCreateAggregator("nb-record-saved", ms.Counter, false).(a.AggregatorCounter).Inc(1)
 			}
 
 			if !ok {
@@ -136,7 +136,7 @@ func (k *KafkaConsumer) Run(db *bolt.DB, metricsService a.MetricsService, disall
 			}
 
 		case err := <-k.consumer.Errors():
-			metricsService.GetOrCreateAggregator("kafka-consumer-error", ms.Counter).(a.AggregatorCounter).Inc(1)
+			metricsService.GetOrCreateAggregator("kafka-consumer-error", ms.Counter, false).(a.AggregatorCounter).Inc(1)
 			log.WithError(err).Error("Kafka consumer error")
 		}
 	}

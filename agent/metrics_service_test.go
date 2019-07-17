@@ -15,7 +15,7 @@ func TestGetOrCreateAggregateWhenItDoesntExist(t *testing.T) {
 	metricsService := NewMetricsService(nil, 100*time.Millisecond)
 
 	//do
-	aggregator := metricsService.GetOrCreateAggregator(aggregatorName, metrics.Counter)
+	aggregator := metricsService.GetOrCreateAggregator(aggregatorName, metrics.Counter, true)
 
 	//want
 	assert.NotNil(t, aggregator)
@@ -26,8 +26,8 @@ func TestGetOrCreateAggregateWhenItAlreadyExist(t *testing.T) {
 	metricsService := NewMetricsService(nil, 100*time.Millisecond)
 
 	//do
-	aggregator := metricsService.GetOrCreateAggregator(aggregatorName, metrics.Counter)
-	aggregator2 := metricsService.GetOrCreateAggregator(aggregatorName, metrics.Counter)
+	aggregator := metricsService.GetOrCreateAggregator(aggregatorName, metrics.Counter, true)
+	aggregator2 := metricsService.GetOrCreateAggregator(aggregatorName, metrics.Counter, true)
 	aggregator3 := metricsService.Get(aggregatorName)
 
 	//want
@@ -52,7 +52,7 @@ func TestGetAggregateWhenItAlreadyExist(t *testing.T) {
 	metricsService := NewMetricsService(nil, 100*time.Millisecond)
 
 	//do
-	metricsService.GetOrCreateAggregator(aggregatorName, metrics.Counter)
+	metricsService.GetOrCreateAggregator(aggregatorName, metrics.Counter, true)
 	aggregator := metricsService.Get(aggregatorName)
 
 	//want

@@ -19,13 +19,13 @@ func NewMetricsService(inputAgent chan metrics.Metric, flushInterval time.Durati
 	}
 }
 
-func (m MetricsService) GetOrCreateAggregator(metricName string, valueType metrics.ValueType) Aggregator {
+func (m MetricsService) GetOrCreateAggregator(metricName string, valueType metrics.ValueType, reset bool) Aggregator {
 	if m.aggregators[metricName] == nil {
 		switch valueType {
 		case metrics.Counter:
-			m.aggregators[metricName] = NewAggregatorCounter(m.InputAgent, metricName)
+			m.aggregators[metricName] = NewAggregatorCounter(m.InputAgent, metricName, reset)
 		case metrics.Gauge:
-			m.aggregators[metricName] = NewAggregatorGauge(m.InputAgent, metricName)
+			m.aggregators[metricName] = NewAggregatorGauge(m.InputAgent, metricName, reset)
 		}
 
 		go m.aggregators[metricName].Run(m.flushInterval)

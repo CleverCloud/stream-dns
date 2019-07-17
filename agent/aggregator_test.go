@@ -11,12 +11,13 @@ import (
 
 func TestAggregationOfCounterByAnAggregatorCounter(t *testing.T) {
 	//got
+
 	metricName := "test"
 	c := make(chan ms.Metric)
 
-	aggregateCounter := NewAggregatorCounter(c, metricName)
+	aggregateCounter := NewAggregatorCounter(c, metricName, true)
 
-	go aggregateCounter.Run(200 * time.Millisecond)
+	go aggregateCounter.Run(100 * time.Millisecond)
 
 	//do
 	aggregateCounter.Inc(4)
@@ -39,9 +40,9 @@ func TestAggregationOfGaugeByAnAggregatorGauge(t *testing.T) {
 	c := make(chan ms.Metric)
 	lastGaugeValue := 1234.0
 
-	aggregateGauge := NewAggregatorGauge(c, metricName)
+	aggregateGauge := NewAggregatorGauge(c, metricName, true)
 
-	go aggregateGauge.Run(200 * time.Millisecond)
+	go aggregateGauge.Run(100 * time.Millisecond)
 
 	//do
 	aggregateGauge.Update(4.0)

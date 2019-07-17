@@ -9,7 +9,6 @@ import (
 type Aggregator interface {
 	Run(time.Duration) error
 	GetInput() chan interface{}
-	ResetVal()
 }
 
 type AggregatorGauge struct {
@@ -17,14 +16,16 @@ type AggregatorGauge struct {
 	agentInput chan metrics.Metric
 	metricName string
 	gauge      float64
+	reset      bool
 }
 
-func NewAggregatorGauge(agentInput chan metrics.Metric, metricName string) AggregatorGauge {
+func NewAggregatorGauge(agentInput chan metrics.Metric, metricName string, reset bool) AggregatorGauge {
 	return AggregatorGauge{
 		agentInput: agentInput,
 		input:      make(chan interface{}),
 		metricName: metricName,
 		gauge:      0.0,
+		reset:      reset,
 	}
 }
 
@@ -40,7 +41,9 @@ func (a AggregatorGauge) Run(flushInterval time.Duration) error {
 			a.gauge = val.(float64)
 		case <-time.After(flushInterval):
 			a.agentInput <- metrics.NewMetric(a.metricName, nil, time.Now(), metrics.Gauge, a.gauge)
-			a.ResetVal()
+			if a.reset {
+				a.ResetVal()
+			}
 		}
 	}
 }
@@ -49,7 +52,7 @@ func (a AggregatorGauge) GetInput() chan interface{} {
 	return a.input
 }
 
-func (a AggregatorGauge) ResetVal() {
+func (a *AggregatorGauge) ResetVal() {
 	a.gauge = 0.0
 }
 
@@ -58,14 +61,16 @@ type AggregatorCounter struct {
 	agentInput chan metrics.Metric
 	metricName string
 	counter    int
+	reset      bool
 }
 
-func NewAggregatorCounter(agentInput chan metrics.Metric, metricName string) AggregatorCounter {
+func NewAggregatorCounter(agentInput chan metrics.Metric, metricName string, reset bool) AggregatorCounter {
 	return AggregatorCounter{
 		agentInput: agentInput,
 		input:      make(chan interface{}),
 		metricName: metricName,
 		counter:    0,
+		reset:      reset,
 	}
 }
 
@@ -85,12 +90,14 @@ func (a AggregatorCounter) Run(flushInterval time.Duration) error {
 			a.counter += val.(int)
 		case <-time.After(flushInterval * 3):
 			a.agentInput <- metrics.NewMetric(a.metricName, nil, time.Now(), metrics.Counter, a.counter)
-			a.ResetVal()
+			if a.reset {
+				a.ResetVal()
+			}
 		}
 	}
 }
 
-func (a AggregatorCounter) ResetVal() {
+func (a *AggregatorCounter) ResetVal() {
 	a.counter = 0
 }
 

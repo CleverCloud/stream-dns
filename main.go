@@ -15,7 +15,7 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
-func serve(db *bolt.DB, config DnsConfig, metricsService a.MetricsService) {
+func serve(db *bolt.DB, config DnsConfig, metricsService *a.MetricsService) {
 	registerHandlerForResolver(".", db, config.ResolverAddress, metricsService)
 	registerHandlerForZones(config.Zones, db, metricsService)
 
@@ -110,9 +110,9 @@ func main() {
 
 	metricsService := a.NewMetricsService(agent.Input, config.Agent.FlushInterval*time.Millisecond)
 
-	go kafkaConsumer.Run(db, metricsService, config.DisallowCNAMEonAPEX)
+	go kafkaConsumer.Run(db, &metricsService, config.DisallowCNAMEonAPEX)
 
-	go serve(db, config.Dns, metricsService)
+	go serve(db, config.Dns, &metricsService)
 
 	// Run HTTP Administrator
 	if config.Administrator.Address != "" {

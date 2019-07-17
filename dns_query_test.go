@@ -93,7 +93,7 @@ func (suite *DnsQuerySuite) TestShouldHandleQueryForManagedZone() {
 
 	mockMetricsService := NewMockMetricsService()
 
-	go serve(suite.DB, defaultDnsConfig, mockMetricsService)
+	go serve(suite.DB, defaultDnsConfig, &mockMetricsService)
 
 	// Avoid connection refused because the DNS server is not ready
 	// FIXME: I tried to set the Timeout + Dialtimeout for the client
@@ -139,7 +139,7 @@ func (suite *DnsQuerySuite) TestShouldHandleQueryWithRecursionOnCNAME() {
 	mockMetricsService := NewMockMetricsService()
 
 	dnsConfig := DnsConfig{":8053", true, false, []string{"test.com"}, "9.9.9.9"}
-	go serve(suite.DB, dnsConfig, mockMetricsService)
+	go serve(suite.DB, dnsConfig, &mockMetricsService)
 
 	// Avoid connection refused because the DNS server is not ready
 	// FIXME: I tried to set the Timeout + Dialtimeout for the client
@@ -174,7 +174,7 @@ func (suite *DnsQuerySuite) TestShouldHandleQueryWithRecursionOnCNAME() {
 func (suite *DnsQuerySuite) TestShouldHandleTheQueryWithTheResolver() {
 	mockMetricsService := NewMockMetricsService()
 
-	go serve(suite.DB, defaultDnsConfig, mockMetricsService)
+	go serve(suite.DB, defaultDnsConfig, &mockMetricsService)
 	time.Sleep(100 * time.Millisecond)
 
 	client := new(dns.Client)
@@ -215,7 +215,7 @@ func (suite *DnsQuerySuite) TestShouldHandleAxfrQuery() {
 	mockMetricsService := NewMockMetricsService()
 
 	axfrConfig := DnsConfig{":8053", true, false, []string{"zonetransfer.me.", "me."}, "9.9.9.9"}
-	go serve(suite.DB, axfrConfig, mockAgent.Input)
+	go serve(suite.DB, axfrConfig, &mockMetricsService)
 	time.Sleep(100 * time.Millisecond) // Avoid connection refused because the DNS server is not ready
 
 	client := new(dns.Client)
@@ -244,7 +244,7 @@ func (suite *DnsQuerySuite) TestShouldHandleAxfrQueryForUnsupportedZone() {
 	mockMetricsService := NewMockMetricsService()
 
 	axfrConfig := DnsConfig{":8053", true, false, []string{"zonetransfer.me."}, "9.9.9.9"}
-	go serve(suite.DB, axfrConfig, mockMetricsService)
+	go serve(suite.DB, axfrConfig, &mockMetricsService)
 	time.Sleep(100 * time.Millisecond) // Avoid connection refused because the DNS server is not ready
 
 	client := new(dns.Client)
