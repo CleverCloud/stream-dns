@@ -8,7 +8,7 @@ import (
 
 type Record struct {
 	Name     string
-	Type     string
+	Type     uint16
 	Content  string
 	Ttl      int
 	Priority int
@@ -32,9 +32,9 @@ func PTR(rr string) *dns.PTR { r, _ := dns.NewRR(rr); return r.(*dns.PTR) }
 
 func recordToString(record Record) string {
 	if record.Priority > 0 {
-		return fmt.Sprintf("%s %d IN %s %d %s", record.Name, record.Ttl, record.Type, record.Priority, record.Content)
+		return fmt.Sprintf("%s %d IN %s %d %s", record.Name, record.Ttl, dns.TypeToString[record.Type], record.Priority, record.Content)
 	} else {
-		return fmt.Sprintf("%s %d IN %s %s", record.Name, record.Ttl, record.Type, record.Content)
+		return fmt.Sprintf("%s %d IN %s %s", record.Name, record.Ttl, dns.TypeToString[record.Type], record.Content)
 	}
 }
 
@@ -51,10 +51,9 @@ func recordSOAToString(record Record) string {
 
 func RecordToAnswer(record Record) dns.RR {
 	var rr dns.RR
-	rtype := dns.StringToType[record.Type]
 	recordstr := recordToString(record)
 
-	switch rtype {
+	switch record.Type {
 	case dns.TypeA:
 		rr = A(recordstr)
 	case dns.TypeAAAA:

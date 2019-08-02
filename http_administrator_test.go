@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/miekg/dns"
 	"github.com/stretchr/testify/suite"
 	bolt "go.etcd.io/bbolt"
 )
@@ -114,10 +115,10 @@ func (suite *HttpAdministratorSuite) TestShouldBeSignedAndGetJWTIfSendCorrectCre
 
 func (suite *HttpAdministratorSuite) TestSearchRecords() {
 	var records = [][]Record{
-		[]Record{Record{"www.example.com.", "A", "1.1.1.1", 3600, 0}},
-		[]Record{Record{"test.foo.bar.io.", "A", "2.2.2.2", 1200, 0}},
-		[]Record{Record{"test.foo.io.", "A", "4.4.4.4", 3600, 0}},
-		[]Record{Record{"test.bar.io.", "A", "4.4.4.4", 3600, 0}},
+		[]Record{Record{"www.example.com.", dns.TypeA, "1.1.1.1", 3600, 0}},
+		[]Record{Record{"test.foo.bar.io.", dns.TypeA, "2.2.2.2", 1200, 0}},
+		[]Record{Record{"test.foo.io.", dns.TypeA, "4.4.4.4", 3600, 0}},
+		[]Record{Record{"test.bar.io.", dns.TypeA, "4.4.4.4", 3600, 0}},
 	}
 
 	seedDBwithRecords(suite.DB, records)
@@ -153,10 +154,10 @@ func (suite *HttpAdministratorSuite) TestSearchRecords() {
 
 func (suite *HttpAdministratorSuite) TestSearchRecordsAndShouldFindNothing() {
 	var records = [][]Record{
-		[]Record{Record{"www.example.com.", "A", "1.1.1.1", 3600, 0}},
-		[]Record{Record{"test.foo.bar.io.", "A", "2.2.2.2", 1200, 0}},
-		[]Record{Record{"test.foo.io.", "A", "4.4.4.4", 3600, 0}},
-		[]Record{Record{"test.bar.io.", "A", "4.4.4.4", 3600, 0}},
+		[]Record{Record{"www.example.com.", dns.TypeA, "1.1.1.1", 3600, 0}},
+		[]Record{Record{"test.foo.bar.io.", dns.TypeA, "2.2.2.2", 1200, 0}},
+		[]Record{Record{"test.foo.io.", dns.TypeA, "4.4.4.4", 3600, 0}},
+		[]Record{Record{"test.bar.io.", dns.TypeA, "4.4.4.4", 3600, 0}},
 	}
 
 	seedDBwithRecords(suite.DB, records)

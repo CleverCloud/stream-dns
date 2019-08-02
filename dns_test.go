@@ -2,11 +2,12 @@ package main
 
 import (
 	"fmt"
+	"math/rand"
+	"testing"
+
 	dns "github.com/miekg/dns"
 	"github.com/stretchr/testify/suite"
 	bolt "go.etcd.io/bbolt"
-	"math/rand"
-	"testing"
 )
 
 type DnsTestSuite struct {
@@ -198,35 +199,34 @@ func (suite *DnsTestSuite) TestShouldFindARecordWithWildcardPrefix() {
 
 func (suite *DnsTestSuite) TestShouldFilterRecordByQtypeOrCname() {
 	var records = []Record{
-		Record{"a.com", "A", "163.172.235.159", 3600, 0},
-		Record{"txt.com", "TXT", "163.172.235.159", 3600, 0},
-		Record{"aaaa.com", "AAAA", "163.172.235.159", 3600, 0},
-		Record{"cname.com", "CNAME", "163.172.235.159", 3600, 0},
+		Record{"a.com", dns.TypeA, "163.172.235.159", 3600, 0},
+		Record{"txt.com", dns.TypeAAAA, "2001:db8:0:85a3:0:0:ac1f:8001", 3600, 0},
+		Record{"aaaa.com", dns.TypeA, "163.172.235.159", 3600, 0},
+		Record{"cname.com", dns.TypeCNAME, "test.com", 3600, 0},
 	}
 
 	recordsFiltered := filterByQtypeAndCname(records, dns.TypeA)
-	suite.Equal(2, len(recordsFiltered))
-	suite.Equal("A", recordsFiltered[0].Type)
+	suite.Equal(3, len(recordsFiltered))
+	suite.Equal(dns.TypeA, recordsFiltered[0].Type)
 	suite.Equal("CNAME", recordsFiltered[1].Type)
 
 	cnameRecords := filterByQtypeAndCname(records, dns.TypeCNAME)
 	suite.Equal(1, len(cnameRecords))
-	suite.Equal("CNAME", cnameRecords[0].Type)
+	suite.Equal(dns.TypeCNAME, cnameRecords[0].Type)
 }
 
 func (suite *DnsTestSuite) TestShouldRecurseOnCNAME() {
 	var records = [][]Record{
-		[]Record{Record{"test.com.", "A", "148.171.11.12", 0, 0}, Record{"test.com.", "A", "163.172.235.159", 0, 0}},
-		[]Record{Record{"sub.test.com.", "CNAME", "test.com.", 0, 0}},
-		[]Record{Record{"sub.sub.test.com.", "CNAME", "sub.test.com.", 0, 0}},
+		[]Record{Record{"test.com.", dns.TypeA, "148.171.11.12", 0, 0}, Record{"test.com.", dns.TypeA, "163.172.235.159", 0, 0}},
+		[]Record{Record{"sub.test.com.", dns.TypeCNAME, "test.com.", 0, 0}},
+		[]Record{Record{"sub.sub.test.com.", dns.TypeCNAME, "sub.test.com.", 0, 0}},
 	}
 
 	seedDBwithRecords(suite.DB, records)
 
 	suite.DB.View(func(tx *bolt.Tx) error {
 		recordsBucket := tx.Bucket([]byte("records"))
-		res := recursionOnCname(recordsBucket, Record{"sub.sub.test.com.", "CNAME", "sub.test.com.", 0, 0})
-
+		res := recursionOnCname(recordsBucket, Record{"sub.sub.test.com.", dns.TypeCNAME, "sub.test.com.", 0, 0})
 
 		suite.Equal(2, len(res))
 		suite.Equal(records[1], res[0]) // sub.test.com -> test.com

@@ -37,7 +37,7 @@ func filterByQtypeAndCname(records []Record, qtype uint16) []Record {
 	var filteredRecords []Record
 
 	for _, record := range records {
-		rrTypeRecord := dns.StringToType[record.Type]
+		rrTypeRecord := record.Type
 
 		if isSameQtypeOrItsCname(qtype, rrTypeRecord) {
 			filteredRecords = append(filteredRecords, record)
@@ -195,7 +195,7 @@ func recursionOnCname(b *bolt.Bucket, record Record) [][]Record {
 	tmp := record
 
 	// Recurse on chain of CNAME
-	for tmp.Type == dns.TypeToString[dns.TypeCNAME] {
+	for tmp.Type == dns.TypeCNAME {
 		v := b.Get([]byte(tmp.Content + "|" + dns.TypeToString[dns.TypeCNAME]))
 		if v != nil {
 			var recordTmp []Record
@@ -208,7 +208,7 @@ func recursionOnCname(b *bolt.Bucket, record Record) [][]Record {
 			records = append(records, recordTmp)
 
 			// We doesn't allow CNAME to point on multiples CNAMES
-			if len(recordTmp) == 1 && recordTmp[0].Type == dns.TypeToString[dns.TypeCNAME] {
+			if len(recordTmp) == 1 && recordTmp[0].Type == dns.TypeCNAME {
 				//continue the recursion but register this CNAME
 				tmp = recordTmp[0]
 			}
@@ -245,7 +245,7 @@ func findRecordsAndSetAsAnswersInMessage(qname string, qtype uint16, db *bolt.DB
 
 		// recursion on CNAME
 		// We do a recursion only if we request a domain and we got only a CNAME has answer
-		if len(records) == 1 && len(records[0]) == 1 && records[0][0].Type == dns.TypeToString[dns.TypeCNAME] {
+		if len(records) == 1 && len(records[0]) == 1 && records[0][0].Type == dns.TypeCNAME {
 			recordsFoundByRecursionOnCNAME := recursionOnCname(recordsBucket, records[0][0])
 			for _, r := range recordsFoundByRecursionOnCNAME {
 				records = append(records, r)
@@ -364,7 +364,7 @@ func findRecordsAndSOAForAXFRInDB(db *bolt.DB, qname string) ([]Record, [][]Reco
 				if err != nil {
 					return err
 				} else {
-					if dns.StringToType[record[0].Type] == dns.TypeSOA {
+					if record[0].Type == dns.TypeSOA {
 						soa = record
 					} else {
 						records = append(records, record)
@@ -405,7 +405,7 @@ func replaceWildcardByQnameInAnswer(qname string, records [][]Record) {
 	if len(records) > 0 {
 		record := records[0]
 
-		if isWildcardQName(record[0].Name) && record[0].Type == dns.TypeToString[dns.TypeCNAME] {
+		if isWildcardQName(record[0].Name) && record[0].Type == dns.TypeCNAME {
 			record[0].Name = qname
 			record[0].Ttl = 0
 		}

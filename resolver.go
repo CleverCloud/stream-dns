@@ -145,7 +145,7 @@ func AnswerToRecord(name string, answer dns.RR) Record {
 	rrtype := answer.Header().Rrtype
 	record := Record{
 		Name: answer.Header().Name,
-		Type: dns.TypeToString[rrtype],
+		Type: rrtype,
 		Ttl:  int(answer.Header().Ttl),
 	}
 

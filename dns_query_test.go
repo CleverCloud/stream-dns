@@ -20,9 +20,9 @@ import (
 
 // Use this list of records if your test is not a specific case
 var defaultSeedRecords = [][]Record{
-	[]Record{Record{"a.rock.", "A", "1.1.1.1", 3600, 0}},
-	[]Record{Record{"b.rock.", "AAAA", "2.2.2.2", 1200, 0}, Record{"b.rock.", "AAAA", "3.3.3.3", 3600, 0}},
-	[]Record{Record{"c.rock.", "MX", "4.4.4.4", 3600, 0}},
+	[]Record{Record{"a.rock.", dns.TypeA, "1.1.1.1", 3600, 0}},
+	[]Record{Record{"b.rock.", dns.TypeA, "2.2.2.2", 1200, 0}, Record{"b.rock.", dns.TypeA, "3.3.3.3", 3600, 0}},
+	[]Record{Record{"c.rock.", dns.TypeA, "4.4.4.4", 3600, 0}},
 }
 
 var defaultDnsConfig = DnsConfig{":8053", true, false, []string{"rock.", "services.cloud."}, "9.9.9.9"}
@@ -71,7 +71,7 @@ func seedDBwithRecords(db *bolt.DB, records [][]Record) error {
 				return err
 			}
 
-			err = b.Put([]byte(rs[0].Name+"|"+rs[0].Type), []byte(recordAsJson))
+			err = b.Put([]byte(rs[0].Name+"|"+dns.TypeToString[rs[0].Type]), []byte(recordAsJson))
 
 			if err != nil {
 				return err
@@ -128,10 +128,10 @@ func (suite *DnsQuerySuite) TestShouldHandleQueryForManagedZone() {
 
 func (suite *DnsQuerySuite) TestShouldHandleQueryWithRecursionOnCNAME() {
 	var records = [][]Record{
-		[]Record{Record{"test.com.", "A", "148.171.11.12", 0, 0}, Record{"test.com.", "A", "163.172.235.159", 0, 0}},
-		[]Record{Record{"sub.test.com.", "CNAME", "test.com.", 0, 0}},
-		[]Record{Record{"sub.sub.test.com.", "CNAME", "sub.test.com.", 0, 0}},
-		[]Record{Record{"sub.sub.sub.test.com.", "CNAME", "sub.sub.test.com.", 0, 0}},
+		[]Record{Record{"test.com.", dns.TypeA, "148.171.11.12", 0, 0}, Record{"test.com.", dns.TypeA, "163.172.235.159", 0, 0}},
+		[]Record{Record{"sub.test.com.", dns.TypeCNAME, "test.com.", 0, 0}},
+		[]Record{Record{"sub.sub.test.com.", dns.TypeCNAME, "sub.test.com.", 0, 0}},
+		[]Record{Record{"sub.sub.sub.test.com.", dns.TypeCNAME, "sub.sub.test.com.", 0, 0}},
 	}
 
 	seedDBwithRecords(suite.DB, records)
@@ -203,11 +203,11 @@ func (suite *DnsQuerySuite) TestShouldHandleAxfrQuery() {
 	viper.AutomaticEnv()
 
 	var axfrRecords = [][]Record{
-		[]Record{Record{"zonetransfer.me.", "SOA", "1.1.1.1 2017042001 172800 900 1209600 3600", 3600, 0}},
-		[]Record{Record{"zonetransfer.me.", "NS", "nsztm1.digi.ninja.", 1200, 0}},
-		[]Record{Record{"foo.zonetransfer.me.", "A", "202.14.81.230", 1200, 0}},
-		[]Record{Record{"bar.zonetransfer.me.", "AAAA", "2001:db8:0:85a3:0:0:ac1f:8001", 1200, 0}},
-		[]Record{Record{"unknown.me.", "AAAA", "2001:db8:0:85a3:0:0:ac1f:8001", 1200, 0}},
+		[]Record{Record{"zonetransfer.me.", dns.TypeSOA, "1.1.1.1 2017042001 172800 900 1209600 3600", 3600, 0}},
+		[]Record{Record{"zonetransfer.me.", dns.TypeNS, "nsztm1.digi.ninja.", 1200, 0}},
+		[]Record{Record{"foo.zonetransfer.me.", dns.TypeA, "202.14.81.230", 1200, 0}},
+		[]Record{Record{"bar.zonetransfer.me.", dns.TypeAAAA, "2001:db8:0:85a3:0:0:ac1f:8001", 1200, 0}},
+		[]Record{Record{"unknown.me.", dns.TypeAAAA, "2001:db8:0:85a3:0:0:ac1f:8001", 1200, 0}},
 	}
 
 	seedDBwithRecords(suite.DB, axfrRecords)
@@ -267,7 +267,7 @@ func TestDnsQueryTestSuite(t *testing.T) {
 
 func answerEqualToRecord(answer dns.RR, record Record) bool {
 	header := answer.Header()
-	return header.Rrtype == dns.StringToType[record.Type] && record.Name == header.Name
+	return (header.Rrtype == record.Type) && (record.Name == header.Name)
 }
 
 // =======================

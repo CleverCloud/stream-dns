@@ -3,10 +3,12 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"testing"
+
+	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 	bolt "go.etcd.io/bbolt"
-	"testing"
 )
 
 type ConsumerQuerySuite struct {
@@ -46,7 +48,7 @@ func (suite *ConsumerQuerySuite) TestCheckIsNotCnameOnApexDomain() {
 // Disallow CNAME on APEX when DISALLOW_CNAME_ON_APEX is disactivated
 func (suite *ConsumerQuerySuite) TestAllowCNAMEonAPEX() {
 	key := []byte("apex.com.|CNAME")
-	record, _ := json.Marshal([]Record{Record{"apex.com.", "CNAME", "foo.bar.com.", 3600, 0}})
+	record, _ := json.Marshal([]Record{Record{"apex.com.", dns.TypeCNAME, "foo.bar.com.", 3600, 0}})
 
 	// disallow DISALLOW_CNAME_ON_APEX flag
 	err := registerRecordAsBytesWithTheKeyInDB(suite.DB, key, record, false)
@@ -67,7 +69,7 @@ func (suite *ConsumerQuerySuite) TestAllowCNAMEonAPEX() {
 // Allow CNAME on APEX when DISALLOW_CNAME_ON_APEX is activated
 func (suite *ConsumerQuerySuite) TestDisallowCNAMEonAPEX() {
 	key := []byte("apex.com.|CNAME")
-	record, _ := json.Marshal([]Record{Record{"apex.com.", "CNAME", "foo.bar.com.", 3600, 0}})
+	record, _ := json.Marshal([]Record{Record{"apex.com.", dns.TypeCNAME, "foo.bar.com.", 3600, 0}})
 
 	err := registerRecordAsBytesWithTheKeyInDB(suite.DB, key, record, true)
 
@@ -87,14 +89,14 @@ func (suite *ConsumerQuerySuite) TestDisallowCNAMEonAPEX() {
 // On subdomains: when a CNAME comes, remove all previous records and replace with CNAME.
 func (suite *ConsumerQuerySuite) TestOnSubdomainWhenCNAMEcomesRemoveAllPreviousRecordsAndReplaceWithCNAME() {
 	var previousRecords = [][]Record{
-		[]Record{Record{"www.example.com.", "A", "1.1.1.1", 3600, 0}},
-		[]Record{Record{"www.example.com.", "AAAA", "2001:db8::1", 3600, 0}},
+		[]Record{Record{"www.example.com.", dns.TypeA, "1.1.1.1", 3600, 0}},
+		[]Record{Record{"www.example.com.", dns.TypeAAAA, "2001:db8::1", 3600, 0}},
 	}
 	seedDBwithRecords(suite.DB, previousRecords)
 
 	// Trying to register a CNAME record
 	key := []byte("www.example.com.|CNAME")
-	record, _ := json.Marshal([]Record{Record{"www.example.com.", "CNAME", "foo.bar.com.", 3600, 0}})
+	record, _ := json.Marshal([]Record{Record{"www.example.com.", dns.TypeCNAME, "foo.bar.com.", 3600, 0}})
 
 	err := registerRecordAsBytesWithTheKeyInDB(suite.DB, key, record, true)
 	assert.True(suite.T(), err == nil)
@@ -119,13 +121,13 @@ func (suite *ConsumerQuerySuite) TestOnSubdomainWhenCNAMEcomesRemoveAllPreviousR
 // On subdomains: when CNAME already exists: allow only new CNAME.
 func (suite *ConsumerQuerySuite) TestOnsubdomainWhenCNAMEalreadyExistsAllowOnlyNewCNAME() {
 	var previousRecords = [][]Record{
-		[]Record{Record{"www.example.com.", "CNAME", "foo.bar.com", 3600, 0}},
+		[]Record{Record{"www.example.com.", dns.TypeCNAME, "foo.bar.com", 3600, 0}},
 	}
 	seedDBwithRecords(suite.DB, previousRecords)
 
 	// trying to register a CNAME record
 	key := []byte("www.example.com.|CNAME")
-	record, _ := json.Marshal([]Record{Record{"www.example.com.", "CNAME", "new.bar.com.", 3600, 0}})
+	record, _ := json.Marshal([]Record{Record{"www.example.com.", dns.TypeCNAME, "new.bar.com.", 3600, 0}})
 
 	err := registerRecordAsBytesWithTheKeyInDB(suite.DB, key, record, true)
 	assert.True(suite.T(), err == nil)
@@ -144,12 +146,12 @@ func (suite *ConsumerQuerySuite) TestOnsubdomainWhenCNAMEalreadyExistsAllowOnlyN
 // On subdomains: when CNAME already exists: allow only new CNAME. Sending a A, AAAA, etc should not be allowed
 func (suite *ConsumerQuerySuite) TestOnsubdomainWhenCNAMEalreadyExistsShouldNotAllowA() {
 	var previousRecords = [][]Record{
-		[]Record{Record{"www.example.com.", "CNAME", "foo.bar.com", 3600, 0}},
+		[]Record{Record{"www.example.com.", dns.TypeCNAME, "foo.bar.com", 3600, 0}},
 	}
 	seedDBwithRecords(suite.DB, previousRecords)
 
 	key := []byte("www.example.com.|A")
-	record, _ := json.Marshal([]Record{Record{"www.example.com.", "A", "1.1.1.1", 3600, 0}})
+	record, _ := json.Marshal([]Record{Record{"www.example.com.", dns.TypeA, "1.1.1.1", 3600, 0}})
 
 	err := registerRecordAsBytesWithTheKeyInDB(suite.DB, key, record, true)
 	assert.True(suite.T(), err != nil)
@@ -170,13 +172,13 @@ func (suite *ConsumerQuerySuite) TestOnsubdomainWhenCNAMEalreadyExistsShouldNotA
 // On APEX when CNAME already exists we  allow not only CNAME
 func (suite *ConsumerQuerySuite) TestOnAPEXdomainWhenCNAMEalreadyExistsWheShouldAllowAnything() {
 	var previousRecords = [][]Record{
-		[]Record{Record{"example.com.", "CNAME", "foo.bar.com", 3600, 0}},
+		[]Record{Record{"example.com.", dns.TypeCNAME, "foo.bar.com", 3600, 0}},
 	}
 	seedDBwithRecords(suite.DB, previousRecords)
 
 	// trying to save A APEX record
 	key := []byte("example.com.|A")
-	record, _ := json.Marshal([]Record{Record{"example.com.", "A", "1.1.1.1", 3600, 0}})
+	record, _ := json.Marshal([]Record{Record{"example.com.", dns.TypeA, "1.1.1.1", 3600, 0}})
 
 	err := registerRecordAsBytesWithTheKeyInDB(suite.DB, key, record, true)
 	suite.Equal(nil, err)
