@@ -39,14 +39,20 @@ func (a *StatsdOutput) Connect() error {
 
 // We ignore the Tags because their are not supported by statsd protocol
 func (a *StatsdOutput) Write(metrics []ms.Metric) {
+	var err error
+
 	for _, m := range metrics {
 		switch m.Type() {
 		case ms.Counter:
-			a.Client.Inc(m.Name(), m.Value().(int64), 1.0)
+			err = a.Client.Inc(m.Name(), int64(m.Value().(int)), 1.0)
 		case ms.Gauge:
-			a.Client.Gauge(m.Name(), m.Value().(int64), 1.0)
+			err = a.Client.Gauge(m.Name(), int64(m.Value().(int)), 1.0)
 		default:
 			log.Warn("Unsupported metrics type by statsd: ", m.Type())
+		}
+
+		if err != nil {
+			log.Errorf("Error writing to output [%s]: %s", a.Name(), err)
 		}
 	}
 }
