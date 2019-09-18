@@ -5,6 +5,9 @@ import (
 	"time"
 )
 
+// Keep the reference of:
+// * all metric aggregators
+// * the metric Agent
 type MetricsService struct {
 	InputAgent    chan metrics.Metric
 	aggregators   map[string]Aggregator

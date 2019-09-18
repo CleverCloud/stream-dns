@@ -46,7 +46,7 @@ func NewAgent(config Config) Agent {
 }
 
 func (a *Agent) Run() error {
-	log.Infof("[agent] Config: Flush Interval:%s", a.Config.FlushInterval*time.Millisecond)
+	log.Infof("[agent] Config: Flush Interval:%s", a.Config.FlushInterval)
 
 	err := a.connectOutputs()
 
@@ -57,19 +57,25 @@ func (a *Agent) Run() error {
 	}
 
 	var buf []metrics.Metric
+	flushTimerEvent := time.NewTimer(a.Config.FlushInterval)
 
 	for {
 		select {
 		case ret := <-a.Input:
 			buf = append(buf, ret)
+			nbMetricsInBuf := len(buf)
+			log.Debugf("buffer fullness: %d / %d metrics", nbMetricsInBuf, a.Config.BufferSize)
 
-			if len(buf) >= a.Config.BufferSize {
+			if nbMetricsInBuf >= a.Config.BufferSize {
 				a.flushMetricsToOutput(buf)
 				buf = buf[:0] // Clear just the slice and keep his capacity
 			}
-		case <-time.After(a.Config.FlushInterval * time.Millisecond):
-			a.flushMetricsToOutput(buf)
-			buf = buf[:0]
+		case <-flushTimerEvent.C:
+			if len(buf) > 0 {
+				a.flushMetricsToOutput(buf)
+				buf = buf[:0]
+			}
+			flushTimerEvent.Reset(a.Config.FlushInterval)
 		}
 	}
 }
@@ -96,6 +102,7 @@ func (a *Agent) connectOutputs() error {
 
 // Create a deepcopy of the metrics slice and send it to outputs
 func (a *Agent) flushMetricsToOutput(metricsBuffer []metrics.Metric) {
+	log.Infof("wrote batch of %d metrics", len(metricsBuffer))
 	// Create an immutable slice of this metrics. We need the buff for the next loop
 	tmp := make([]metrics.Metric, len(metricsBuffer))
 	copy(tmp, metricsBuffer)

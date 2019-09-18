@@ -56,7 +56,7 @@ func main() {
 		},
 		AgentConfig{
 			viper.GetInt("metrics_buffer_size"),
-			viper.GetDuration("metrics_flush_interval"),
+			viper.GetDuration("metrics_flush_interval") * time.Millisecond,
 		},
 		StatsdConfig{
 			viper.GetString("statsd_address"),
@@ -108,7 +108,7 @@ func main() {
 		raven.CaptureError(err, nil)
 	}
 
-	metricsService := a.NewMetricsService(agent.Input, config.Agent.FlushInterval*time.Millisecond)
+	metricsService := a.NewMetricsService(agent.Input, config.Agent.FlushInterval)
 
 	go kafkaConsumer.Run(db, &metricsService, config.DisallowCNAMEonAPEX)
 

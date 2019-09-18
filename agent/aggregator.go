@@ -84,15 +84,18 @@ func (a AggregatorCounter) Dec(val int) {
 }
 
 func (a AggregatorCounter) Run(flushInterval time.Duration) error {
+	flushTimerEvent := time.NewTimer(flushInterval)
+
 	for {
 		select {
 		case val := <-a.input:
 			a.counter += val.(int)
-		case <-time.After(flushInterval * 3):
+		case <-flushTimerEvent.C:
 			a.agentInput <- metrics.NewMetric(a.metricName, nil, time.Now(), metrics.Counter, a.counter)
 			if a.reset {
 				a.ResetVal()
 			}
+			flushTimerEvent.Reset(flushInterval)
 		}
 	}
 }
