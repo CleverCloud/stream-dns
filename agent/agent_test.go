@@ -28,7 +28,7 @@ func TestAgentFlushTheMetricsWhenBufferIsFilled(t *testing.T) {
 	// got
 	c := make(chan int)
 
-	agent := NewAgent(Config{3, 100})
+	agent := NewAgent(Config{3, 300 * time.Millisecond})
 	agent.AddOutput(MockOutput{c})
 
 	go agent.Run()
