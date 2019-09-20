@@ -86,15 +86,17 @@ func (m *metric) ToString() string {
 	var val string
 
 	switch m.tp {
-	case Counter, Gauge:
-		val = fmt.Sprintf("%d", m.value)
+	case Counter:
+		val = fmt.Sprintf("type: counter value: %d", m.value)
+	case Gauge:
+		val = fmt.Sprintf("type: gauge value: %d", m.value)
 	default:
-		val = "[undefined type]"
+		val = fmt.Sprintf("type: undefined value: %s", m.value)
 	}
 
 	tags := m.TagsToString()
 
-	return fmt.Sprintf("metric name: %s tags: %s at %s value = %s", m.name, tags, m.tm.UTC().String(), val)
+	return fmt.Sprintf("metric name: %s tags: %s at %s %s", m.name, tags, m.tm.UTC().String(), val)
 }
 
 func (m *metric) Name() string {
