@@ -14,6 +14,7 @@ type Config struct {
 	PathDB              string
 	sentryDSN           string
 	DisallowCNAMEonAPEX bool
+	InstanceId          string
 }
 
 type StatsdConfig struct {
