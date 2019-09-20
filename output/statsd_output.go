@@ -4,21 +4,23 @@ package output
 import (
 	ms "stream-dns/metrics"
 
-	"github.com/cactus/go-statsd-client/statsd"
-	log "github.com/sirupsen/logrus"
+	"github.com/labstack/gommon/log"
+	statsd "gopkg.in/alexcesaro/statsd.v2"
 )
 
 type StatsdOutput struct {
 	Address string
 	Prefix  string // prefix is the statsd client prefix. Can be "" if no prefix is desired.
-	Client  statsd.Statter
+	Client  *statsd.Client
+	Tags    []string
 }
 
-func NewStatsdOutput(address string, prefix string) *StatsdOutput {
+func NewStatsdOutput(address string, prefix string, tags ...string) *StatsdOutput {
 	return &StatsdOutput{
 		Address: address,
 		Prefix:  prefix,
 		Client:  nil,
+		Tags:    tags,
 	}
 }
 
@@ -27,32 +29,31 @@ func (a *StatsdOutput) Name() string {
 }
 
 func (a *StatsdOutput) Connect() error {
-	client, err := statsd.NewClient(a.Address, a.Prefix)
+	c, err := statsd.New(
+		statsd.Address(a.Address),
+		statsd.TagsFormat(statsd.InfluxDB),
+		statsd.Tags(a.Tags...),
+	)
 
 	if err != nil {
 		return err
 	}
 
-	a.Client = client
+	a.Client = c
+
 	return nil
 }
 
 // We ignore the Tags because their are not supported by statsd protocol
 func (a *StatsdOutput) Write(metrics []ms.Metric) {
-	var err error
-
 	for _, m := range metrics {
 		switch m.Type() {
 		case ms.Counter:
-			err = a.Client.Inc(m.Name(), int64(m.Value().(int)), 1.0)
+			a.Client.Count(m.Name(), int64(m.Value().(int)))
 		case ms.Gauge:
-			err = a.Client.Gauge(m.Name(), int64(m.Value().(int)), 1.0)
+			a.Client.Gauge(m.Name(), int64(m.Value().(int)))
 		default:
 			log.Warn("Unsupported metrics type by statsd: ", m.Type())
-		}
-
-		if err != nil {
-			log.Errorf("Error writing to output [%s]: %s", a.Name(), err)
 		}
 	}
 }
