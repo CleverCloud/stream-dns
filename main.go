@@ -74,6 +74,8 @@ func main() {
 		viper.GetString("instance_id"),
 	}
 
+	log.WithField("id", config.InstanceId).Info("Starting stream-dns")
+
 	// Sentry
 	raven.SetDSN(config.sentryDSN)
 
