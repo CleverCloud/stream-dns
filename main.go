@@ -71,7 +71,10 @@ func main() {
 		viper.GetString("pathdb"),
 		viper.GetString("sentry_dsn"),
 		viper.GetBool("disallow_cname_on_apex"),
+		viper.GetString("instance_id"),
 	}
+
+	log.WithField("id", config.InstanceId).Info("Starting stream-dns")
 
 	// Sentry
 	raven.SetDSN(config.sentryDSN)
@@ -92,7 +95,7 @@ func main() {
 
 	// Setup Statsd is config exist
 	if config.Statsd.Address != "" {
-		statsdOutput := output.NewStatsdOutput(config.Statsd.Address, config.Statsd.Prefix)
+		statsdOutput := output.NewStatsdOutput(config.Statsd.Address, config.Statsd.Prefix, "id", config.InstanceId)
 		agent.AddOutput(statsdOutput)
 	}
 
