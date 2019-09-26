@@ -69,6 +69,18 @@ The following environment variables can be set:
 | DNS_ADMIN_ADDRESS          | bool           | (optional) Address for the HTTP administrator                                                   |
 | DNS_ADMIN_JWTSECRET        | bool           | (optional) JWT secret for administrator credentials                                             |
 
+### Level logging
+
+Logging is controlled via the `LOG_LEVEL` environment variable.
+The actual level is optional to specify. If omitted, all logging will be enabled.
+If specified, the value of this environment variable must be one of the strings: `trace, debug, info, warn, error, fatal, panic` (support CamelCase and uppercase).
+
+### Log Formatters
+
+Logging format is controlled via the `LOG_FORMAT` environment variable.
+The actual formatter is optional to specify. If omitted, stream-dns use the text formatter.
+If specified, the value of this environment variable must be one of the strings: `json` (support CamelCase and uppercase).
+
 ## Run it
 
 An important preliminary phase is to start a single Kafka node. You can do this easily by following the instructions in this quickstart tutorial: https://kafka.apache.org/quickstart (just the first two steps). You an use the tool script [seed.go](https://github.com/CleverCloud/stream-dns/blob/master/tools/seed/seed.go) provide in this repository to populate your Kafka topic with fake record.

@@ -32,11 +32,40 @@ func serve(db *bolt.DB, config DnsConfig, metricsService *a.MetricsService) {
 	}
 }
 
-func main() {
-	viper.SetEnvPrefix("DNS") // Avoid collisions with others env variables
+func init() {
 	viper.AutomaticEnv()
 	viper.AllowEmptyEnv(false)
 
+	switch viper.GetString("LOG_FORMAT") {
+	case "json", "JSON":
+		log.SetFormatter(&log.JSONFormatter{})
+	default:
+		log.SetFormatter(&log.TextFormatter{})
+	}
+
+	switch viper.GetString("LOG_LEVEL") {
+	case "trace", "Trace", "TRACE":
+		log.SetLevel(log.TraceLevel)
+	case "debug", "Debug", "DEBUG":
+		log.SetLevel(log.DebugLevel)
+	case "info", "Info", "INFO":
+		log.SetLevel(log.InfoLevel)
+	case "warn", "Warn", "WARN":
+		log.SetLevel(log.WarnLevel)
+	case "error", "Error", "ERROR":
+		log.SetLevel(log.ErrorLevel)
+	case "fatal", "Fatal", "FATAL":
+		log.SetLevel(log.FatalLevel)
+	case "panic", "Panic", "PANIC":
+		log.SetLevel(log.PanicLevel)
+	default:
+		log.SetLevel(log.InfoLevel)
+	}
+
+	viper.SetEnvPrefix("DNS") // Avoid collisions with others env variables
+}
+
+func main() {
 	config := Config{
 		KafkaConfig{
 			Address:    viper.GetStringSlice("kafka_address"),
