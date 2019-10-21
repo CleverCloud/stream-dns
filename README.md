@@ -47,27 +47,29 @@ NOTE: packages for mainstream Linux distribution should come soon.
 Stream-dns use environment variables for it's configuration.
 The following environment variables can be set:
 
-| Variable                   | Type           | Description                                                                                     |
-|----------------------------|----------------|-------------------------------------------------------------------------------------------------|
-| DNS_INSTANCE_ID            | string         | Unique Identifier of this stream-dns instance                                                   |
-| DNS_ADDRESS                | string         | Address for the DNS server e.g: ":8053"                                                         |
-| DNS_TCP                    | bool           | Accept TCP DNS connection                                                                       |
-| DNS_UDP                    | bool           | Accept UDP DNS connection                                                                       |
-| DNS_RESOLVER_ADDRESS       | string         | Address use to resolve unsupported zone                                                         |
-| DNS_ZONES                  | List of string | List of supported zones e.g: "clvrcld.net. services.clever-cloud.com." (separate by whitespace) |
-| DNS_KAFKA_ADDRESS          | string         | Address of one kafka node e.g: "localhost:9092"                                                 |
-| DNS_KAFKA_TOPIC            | string         | Kafka topic of the records                                                                      |
-| DNS_METRICS_BUFFER_SIZE    | int            | Size of the metrics buffer in bytes                                                             |
-| DNS_METRICS_FLUSH_INTERVAL | int            | Flushing interval of the metrics                                                                |
-| DNS_PATHDB                 | string         | Path of the bbolt database e.g: "/tmp/my.db"                                                    |
-| DNS_SENTRY_DSN             | string         | DSN to the sentry project e.g: "https://<key>:<secret>@sentry.io/<project>"                     |
-| DNS_STATSD_ADDRESS         | string         | Address use to output the metrics in a statd format e.g: "127.0.0.1:8125"                       |
-| DNS_STATSD_PREFIX          | string         | (optional) Add a prefix on statd field metric                                                   |
-| DNS_DISALLOW_CNAME_ON_APEX | bool           | (optional) Disallow CNAME on a APEX domain                                                      |
-| DNS_ADMIN_USERNAME         | bool           | (optional) username for HTTP administrator service                                              |
-| DNS_ADMIN_PASSWORD         | bool           | (optional) password for HTTP administrator service                                              |
-| DNS_ADMIN_ADDRESS          | bool           | (optional) Address for the HTTP administrator                                                   |
-| DNS_ADMIN_JWTSECRET        | bool           | (optional) JWT secret for administrator credentials                                             |
+| Variable                   | Type           | Description                                                                                                                                             |
+|----------------------------|----------------|---------------------------------------------------------------------------------------------------------------------------------------------------------|
+| DNS_INSTANCE_ID            | string         | Unique Identifier of this stream-dns instance                                                                                                           |
+| DNS_ADDRESS                | string         | Address for the DNS server e.g: ":8053"                                                                                                                 |
+| DNS_TCP                    | bool           | Accept TCP DNS connection                                                                                                                               |
+| DNS_UDP                    | bool           | Accept UDP DNS connection                                                                                                                               |
+| DNS_RESOLVER_ADDRESS       | string         | Address use to resolve unsupported zone                                                                                                                 |
+| DNS_ZONES                  | List of string | List of supported zones e.g: "clvrcld.net. services.clever-cloud.com." (separate by whitespace)                                                         |
+| DNS_KAFKA_ADDRESS          | string         | Address of one kafka node e.g: "localhost:9092"                                                                                                         |
+| DNS_KAFKA_TOPIC            | string         | Kafka topic of the records                                                                                                                              |
+| DNS_METRICS_BUFFER_SIZE    | int            | Size of the metrics buffer in bytes                                                                                                                     |
+| DNS_METRICS_FLUSH_INTERVAL | int            | Flushing interval of the metrics                                                                                                                        |
+| DNS_PATHDB                 | string         | Path of the bbolt database e.g: "/tmp/my.db"                                                                                                            |
+| DNS_SENTRY_DSN             | string         | DSN to the sentry project e.g: "https://<key>:<secret>@sentry.io/<project>"                                                                             |
+| DNS_STATSD_ADDRESS         | string         | Address use to output the metrics in a statd format e.g: "127.0.0.1:8125"                                                                               |
+| DNS_STATSD_PREFIX          | string         | (optional) Add a prefix on statd field metric                                                                                                           |
+| DNS_DISALLOW_CNAME_ON_APEX | bool           | (optional) Disallow CNAME on a APEX domain                                                                                                              |
+| DNS_ADMIN_USERNAME         | bool           | (optional) username for HTTP administrator service                                                                                                      |
+| DNS_ADMIN_PASSWORD         | bool           | (optional) password for HTTP administrator service                                                                                                      |
+| DNS_ADMIN_ADDRESS          | bool           | (optional) Address for the HTTP administrator                                                                                                           |
+| DNS_ADMIN_JWTSECRET        | bool           | (optional) JWT secret for administrator credentials                                                                                                     |
+| DNS_LOCAL_RECORDS          | string         | (optional) Set record(s) specific to one instance. Must follow the format: [NAME]. [TTL] IN A [CONTENT] e.g.: www.example.internal. 2700 IN A 127.0.0.1 |
+
 
 ### Level logging
 

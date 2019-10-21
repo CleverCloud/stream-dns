@@ -15,6 +15,7 @@ type Config struct {
 	sentryDSN           string
 	DisallowCNAMEonAPEX bool
 	InstanceId          string
+	LocalRecords        string
 }
 
 type StatsdConfig struct {
