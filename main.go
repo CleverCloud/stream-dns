@@ -1,10 +1,13 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 	"os/signal"
 	a "stream-dns/agent"
 	"stream-dns/output"
+	"strings"
 	"syscall"
 	"time"
 
@@ -101,6 +104,7 @@ func main() {
 		viper.GetString("sentry_dsn"),
 		viper.GetBool("disallow_cname_on_apex"),
 		viper.GetString("instance_id"),
+		viper.GetString("local_records"),
 	}
 
 	log.WithField("id", config.InstanceId).Info("Starting stream-dns")
@@ -115,6 +119,16 @@ func main() {
 	if err != nil {
 		raven.CaptureError(err, map[string]string{"step": "init"})
 		log.Fatal("database ", config.PathDB, err.Error(), "\nSet the environment variable: DNS_PATHDB")
+	}
+
+	// Local Records
+	localRecords, err := localARecordsRawIntoRecords(config.LocalRecords)
+	if err == nil {
+		registerLocalRecords(db, localRecords)
+		log.Info("Local records from configuration has been saved")
+	} else {
+		log.Error("Local records", err)
+		os.Exit(1)
 	}
 
 	// Metrics
@@ -157,4 +171,73 @@ func main() {
 
 	db.Close()
 	log.WithFields(log.Fields{"signal": s}).Info("Signal received, stopping")
+}
+
+// FIXME: For now, the local-records can only accept A Rtype DNS record
+// we can improve this to accept any type of Rtype and improve the parsing.
+func registerLocalRecords(db *bolt.DB, records []Record) error {
+	tmp := make(map[string][]Record)
+
+	for _, r := range records {
+		tmp[fmt.Sprintf("%s|A", r.Name)] = []Record{r}
+	}
+
+	for key, r := range tmp {
+		recordRaw, err := json.Marshal(r)
+
+		if err != nil {
+			return err
+		}
+
+		keyRaw := []byte(key)
+
+		err = db.Update(func(tx *bolt.Tx) error {
+			b, _ := tx.CreateBucketIfNotExists([]byte("records"))
+
+			err := b.Put(keyRaw, recordRaw)
+
+			if err != nil {
+				return err
+			}
+
+			return nil
+		})
+
+		return err
+	}
+
+	return nil
+}
+
+// The local records are read through the env variable as a string
+// This method take a string and transform it into a slice of Record
+// FIXME: For now, the local-records can only accept A Rtype DNS record
+// we can improve this to accept any type of Rtype and improve the parsing.
+func localARecordsRawIntoRecords(rawRecords string) ([]Record, error) {
+	records := []Record{}
+
+	rawRecordsSlice := strings.Split(rawRecords, "\n")
+
+	for _, r := range rawRecordsSlice {
+		var name string
+		var ttl int
+		var content string
+		_, err := fmt.Sscanf(r, "%s %d IN A %s", &name, &ttl, &content)
+
+		if err != nil {
+			return nil, fmt.Errorf("Malformated A local record, expected: \"[NAME]. [TTL] IN A [CONTENT]\" \tgot the error: %s", err)
+		}
+
+		record := Record{
+			Name:     name,
+			Type:     "A",
+			Content:  content,
+			Ttl:      ttl,
+			Priority: 0,
+		}
+
+		records = append(records, record)
+	}
+
+	return records, nil
 }
