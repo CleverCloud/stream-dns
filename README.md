@@ -49,7 +49,7 @@ The following environment variables can be set:
 
 | Variable                   | Type           | Description                                                                                                                                             |
 |----------------------------|----------------|---------------------------------------------------------------------------------------------------------------------------------------------------------|
-| DNS_INSTANCE_ID            | string         | Unique Identifier of this stream-dns instance                                                                                                           |
+| DNS_INSTANCE_ID            | string         | (optional) Unique Identifier of this stream-dns instance                                                                                                           |
 | DNS_ADDRESS                | string         | Address for the DNS server e.g: ":8053"                                                                                                                 |
 | DNS_TCP                    | bool           | Accept TCP DNS connection                                                                                                                               |
 | DNS_UDP                    | bool           | Accept UDP DNS connection                                                                                                                               |

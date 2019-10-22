@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/getsentry/raven-go"
+	"github.com/google/uuid"
 	dns "github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
@@ -105,6 +106,11 @@ func main() {
 		viper.GetBool("disallow_cname_on_apex"),
 		viper.GetString("instance_id"),
 		viper.GetString("local_records"),
+	}
+
+	if config.InstanceId == "" {
+		config.InstanceId = uuid.New().String()
+		log.Warn("The configuration DNS_INSTANCE_ID was not set, we generate one by default.")
 	}
 
 	log.WithField("id", config.InstanceId).Info("Starting stream-dns")
