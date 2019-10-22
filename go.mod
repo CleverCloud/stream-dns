@@ -8,6 +8,7 @@ require (
 	github.com/certifi/gocertifi v0.0.0-20190506164543-d2eda7129713 // indirect
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible
 	github.com/getsentry/raven-go v0.2.0
+	github.com/google/uuid v1.1.1
 	github.com/labstack/gommon v0.3.0
 	github.com/miekg/dns v1.1.15
 	github.com/miton18/go-warp10 v0.0.0-20190522085847-5bfc5e407caf

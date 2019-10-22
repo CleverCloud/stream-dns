@@ -128,13 +128,16 @@ func main() {
 	}
 
 	// Local Records
-	localRecords, err := localARecordsRawIntoRecords(config.LocalRecords)
-	if err == nil {
-		registerLocalRecords(db, localRecords)
-		log.Info("Local records from configuration has been saved")
-	} else {
-		log.Error("Local records", err)
-		os.Exit(1)
+	if config.LocalRecords != "" {
+		localRecords, err := localARecordsRawIntoRecords(config.LocalRecords)
+
+		if err == nil {
+			registerLocalRecords(db, localRecords)
+			log.Info("Local records from configuration has been saved")
+		} else {
+			log.Error("Local records", err)
+			os.Exit(1)
+		}
 	}
 
 	// Metrics
@@ -222,27 +225,30 @@ func registerLocalRecords(db *bolt.DB, records []Record) error {
 func localARecordsRawIntoRecords(rawRecords string) ([]Record, error) {
 	records := []Record{}
 
-	rawRecordsSlice := strings.Split(rawRecords, "\n")
+	if rawRecords != "" {
+		rawRecordsSlice := strings.Split(rawRecords, "\n")
 
-	for _, r := range rawRecordsSlice {
-		var name string
-		var ttl int
-		var content string
-		_, err := fmt.Sscanf(r, "%s %d IN A %s", &name, &ttl, &content)
+		for _, r := range rawRecordsSlice {
+			var name string
+			var ttl int
+			var content string
+			_, err := fmt.Sscanf(r, "%s %d IN A %s", &name, &ttl, &content)
 
-		if err != nil {
-			return nil, fmt.Errorf("Malformated A local record, expected: \"[NAME]. [TTL] IN A [CONTENT]\" \tgot the error: %s", err)
+			if err != nil {
+				return nil, fmt.Errorf("Malformated A local record, expected: \"[NAME]. [TTL] IN A [CONTENT]\" \tgot the error: %s", err)
+			}
+
+			record := Record{
+				Name:     name,
+				Type:     "A",
+				Content:  content,
+				Ttl:      ttl,
+				Priority: 0,
+			}
+
+			records = append(records, record)
 		}
 
-		record := Record{
-			Name:     name,
-			Type:     "A",
-			Content:  content,
-			Ttl:      ttl,
-			Priority: 0,
-		}
-
-		records = append(records, record)
 	}
 
 	return records, nil
