@@ -127,6 +127,20 @@ func main() {
 		log.Fatal("database ", config.PathDB, err.Error(), "\nSet the environment variable: DNS_PATHDB")
 	}
 
+	err = db.Update(func(tx *bolt.Tx) error {
+		_, err := tx.CreateBucket([]byte("records"))
+
+		if err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		log.Panic(err.Error())
+	}
+
 	// Local Records
 	if config.LocalRecords != "" {
 		localRecords, err := localARecordsRawIntoRecords(config.LocalRecords)
