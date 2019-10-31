@@ -238,8 +238,11 @@ func recursionOnCname(b *bolt.Bucket, record Record) [][]Record {
 
 func findRecordsAndSetAsAnswersInMessage(qname string, qtype uint16, db *bolt.DB, m *dns.Msg, r *dns.Msg, metricsService *a.MetricsService) error {
 	err := db.View(func(tx *bolt.Tx) error {
-		// TODO: check if the bucket already exists and has keys
-		recordsBucket := tx.Bucket([]byte("records"))
+		recordsBucket, err := tx.CreateBucketIfNotExists([]byte("records"))
+
+		if err != nil {
+			return err
+		}
 
 		records, err := getRecordsFromBucket(recordsBucket, qname)
 
