@@ -13,28 +13,11 @@ import (
 
 	"github.com/getsentry/raven-go"
 	"github.com/google/uuid"
-	dns "github.com/miekg/dns"
+	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 	bolt "go.etcd.io/bbolt"
 )
-
-func serve(db *bolt.DB, config DnsConfig, metricsService *a.MetricsService) {
-	registerHandlerForResolver(".", db, config.ResolverAddress, metricsService)
-	registerHandlerForZones(config.Zones, db, metricsService)
-
-	if config.Udp {
-		serverudp := &dns.Server{Addr: config.Address, Net: "udp", TsigSecret: nil}
-		go serverudp.ListenAndServe()
-		log.Info("UDP server listening on: ", config.Address)
-	}
-
-	if config.Tcp {
-		servertcp := &dns.Server{Addr: config.Address, Net: "tcp", TsigSecret: nil}
-		go servertcp.ListenAndServe()
-		log.Info("TCP server listening on: ", config.Address)
-	}
-}
 
 func init() {
 	viper.AutomaticEnv()
@@ -70,7 +53,67 @@ func init() {
 }
 
 func main() {
-	config := Config{
+	config := getConfiguration()
+
+	instanceID := setupInstanceID(config.InstanceId)
+
+	raven.SetDSN(config.sentryDSN)
+
+	db := setupRecordsDatabase(config.PathDB)
+	setupLocalRecords(db, config.LocalRecords)
+
+	agent := setupMetricAgent(config.Agent, config.Statsd, instanceID)
+
+	metricsService := a.NewMetricsService(agent.Input, config.Agent.FlushInterval)
+
+	setupKafkaConsumer(db, config.Kafka, &metricsService, config.DisallowCNAMEonAPEX)
+
+	setupDNSserveDNSr(db, config.Dns, &metricsService)
+
+	setupHTTPAdministratorserveDNSr(db, config.Administrator)
+
+	// Setup OS signal to stop this service
+	sig := make(chan os.Signal)
+	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+
+	s := <-sig
+
+	db.Close()
+	log.WithFields(log.Fields{"signal": s}).Info("Signal received, stopping")
+}
+
+func setupRecordsDatabase(path string) (db *bolt.DB) {
+	db, err := bolt.Open(path, 0600, nil)
+
+	err = db.Update(func(tx *bolt.Tx) error {
+		_, err := tx.CreateBucket([]byte("records"))
+
+		if err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		log.Panic(err.Error())
+	}
+
+	return db
+}
+
+func setupInstanceID(id string) string {
+	if id == "" {
+		id = uuid.New().String()
+		log.Warn("The configuration DNS_INSTANCE_ID was not set, we generate one by default.")
+	}
+
+	log.WithField("id", id).Info("Starting stream-dns")
+	return id
+}
+
+func getConfiguration() Config {
+	return Config{
 		KafkaConfig{
 			Address:    viper.GetStringSlice("kafka_address"),
 			Topics:     viper.GetStringSlice("kafka_topics"),
@@ -107,43 +150,11 @@ func main() {
 		viper.GetString("instance_id"),
 		viper.GetString("local_records"),
 	}
+}
 
-	if config.InstanceId == "" {
-		config.InstanceId = uuid.New().String()
-		log.Warn("The configuration DNS_INSTANCE_ID was not set, we generate one by default.")
-	}
-
-	log.WithField("id", config.InstanceId).Info("Starting stream-dns")
-
-	// Sentry
-	raven.SetDSN(config.sentryDSN)
-
-	// Setup os signal to stop this service
-	sig := make(chan os.Signal)
-
-	db, err := bolt.Open(config.PathDB, 0600, nil)
-	if err != nil {
-		raven.CaptureError(err, map[string]string{"step": "init"})
-		log.Fatal("database ", config.PathDB, err.Error(), "\nSet the environment variable: DNS_PATHDB")
-	}
-
-	err = db.Update(func(tx *bolt.Tx) error {
-		_, err := tx.CreateBucket([]byte("records"))
-
-		if err != nil {
-			return err
-		}
-
-		return nil
-	})
-
-	if err != nil {
-		log.Panic(err.Error())
-	}
-
-	// Local Records
-	if config.LocalRecords != "" {
-		localRecords, err := localARecordsRawIntoRecords(config.LocalRecords)
+func setupLocalRecords(db *bolt.DB, rawLocalRecords string) {
+	if rawLocalRecords != "" {
+		localRecords, err := localARecordsRawIntoRecords(rawLocalRecords)
 
 		if err == nil {
 			registerLocalRecords(db, localRecords)
@@ -153,47 +164,58 @@ func main() {
 			os.Exit(1)
 		}
 	}
+}
 
-	// Metrics
-	agent := a.NewAgent(a.Config{config.Agent.BufferSize, config.Agent.FlushInterval})
-
-	// Outputs metrics
+func setupMetricAgent(cfg AgentConfig, statsdCfg StatsdConfig, instanceID string) (agent a.Agent) {
+	agent = a.NewAgent(a.Config{cfg.BufferSize, cfg.FlushInterval})
+	agent.AddOutput(output.StdoutOutput{})
 
 	// Setup Statsd is config exist
-	if config.Statsd.Address != "" {
-		statsdOutput := output.NewStatsdOutput(config.Statsd.Address, config.Statsd.Prefix, "id", config.InstanceId)
+	if statsdCfg.Address != "" {
+		statsdOutput := output.NewStatsdOutput(statsdCfg.Address, statsdCfg.Prefix, "id", instanceID)
 		agent.AddOutput(statsdOutput)
 	}
 
-	agent.AddOutput(output.StdoutOutput{})
-
 	go agent.Run()
 
-	// Run goroutines service
-	kafkaConsumer, err := NewKafkaConsumer(config.Kafka)
+	return
+}
+
+func setupKafkaConsumer(db *bolt.DB, cfg KafkaConfig, metricsService *a.MetricsService, disallowCnameOnAPEX bool) {
+	kafkaConsumer, err := NewKafkaConsumer(cfg)
 
 	if err != nil {
 		log.Panic(err)
 		raven.CaptureError(err, nil)
 	}
 
-	metricsService := a.NewMetricsService(agent.Input, config.Agent.FlushInterval)
+	go kafkaConsumer.Run(db, metricsService, disallowCnameOnAPEX)
+}
 
-	go kafkaConsumer.Run(db, &metricsService, config.DisallowCNAMEonAPEX)
+func setupDNSserveDNSr(db *bolt.DB, cfg DnsConfig, metricsService *a.MetricsService) {
+	go serveDNS(db, cfg, metricsService)
+}
 
-	go serve(db, config.Dns, &metricsService)
+func serveDNS(db *bolt.DB, config DnsConfig, metricsService *a.MetricsService) {
+	registerHandlerForResolver(".", db, config.ResolverAddress, metricsService)
+	registerHandlerForZones(config.Zones, db, metricsService)
 
-	// Run HTTP Administrator
-	if config.Administrator.Address != "" {
-		httpAdministrator := NewHttpAdministrator(db, config.Administrator)
-		go httpAdministrator.StartHttpAdministrator()
+	if config.Udp {
+		serverudp := &dns.Server{Addr: config.Address, Net: "udp", TsigSecret: nil}
+		go serverudp.ListenAndServe()
+		log.Info("UDP serveDNSr listening on: ", config.Address)
 	}
 
-	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-	s := <-sig
+	if config.Tcp {
+		servertcp := &dns.Server{Addr: config.Address, Net: "tcp", TsigSecret: nil}
+		go servertcp.ListenAndServe()
+		log.Info("TCP serveDNSr listening on: ", config.Address)
+	}
+}
 
-	db.Close()
-	log.WithFields(log.Fields{"signal": s}).Info("Signal received, stopping")
+func setupHTTPAdministratorserveDNSr(db *bolt.DB, cfg AdministratorConfig) {
+	httpAdministrator := NewHttpAdministrator(db, cfg)
+	go httpAdministrator.StartHttpAdministrator()
 }
 
 // FIXME: For now, the local-records can only accept A Rtype DNS record
