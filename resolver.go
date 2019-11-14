@@ -1,182 +1,57 @@
 package main
 
 import (
-	"strings"
-	"time"
-
-	"github.com/getsentry/raven-go"
+	"github.com/domainr/dnsr"
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 )
 
-type QueryType uint16
+const defaultDNSPort = ":53"
+const defaultCacheSize = 10000
 
-type Query struct {
-	target string
-	types  []QueryType
-}
-
-func NewQuery(target string, types ...QueryType) Query {
-	return Query{target, types}
-}
-
+// Resolver is baded on the Resolver provide by the library dnsr.
+// The resolver caches responses for queries, and liberally!
+// returns DNS records for a given name, not waiting for slow or broken name servers.
 type Resolver struct {
-	server     string
-	query      Query
-	timeout    time.Duration
-	retryTimes uint
+	resolver *dnsr.Resolver
 }
 
-func NewResolver(server string, query Query, retryTimes time.Duration, timeout uint) Resolver {
-	server = AddDefaultDNSPortIfIsNotDefine(server)
-
-	return Resolver{server, query, retryTimes, timeout}
+// NewResolver create a new instance Resolver
+func NewResolver() *Resolver {
+	return &Resolver{
+		resolver: dnsr.New(defaultCacheSize),
+	}
 }
 
-func (r *Resolver) Lookup() (map[QueryType][]Record, error) {
-	recordsMap := map[QueryType][]Record{}
+// Resolve find DNS records of type qtype for the domain qname.
+// For nonexistent domains (NXDOMAIN), it will return an empty, non-nil slice.
+// The Resolve method is based on dnsr.Resolver, which queries DNS for given name and type (A, NS, CNAME, etc.).
+func (r *Resolver) Resolve(qname string, qtype uint16) []dns.RR {
+	log.WithFields(log.Fields{
+		"qname": qname,
+		"qtype": dns.TypeToString[qtype],
+	}).Info("starting a resolver request")
 
-	nbTypes := len(r.query.types)
-	resultsChan := make(chan struct {
-		records []Record
-		QueryType
-		error
-	})
+	tmpRRs := r.resolver.Resolve(dns.Fqdn(qname), dns.TypeToString[qtype])
+	rrs := r.mapRRFromDnsrIntoRR(tmpRRs)
 
-	// A dns question can only support one query type.
-	// So to improve the performance, we have to spawn exchanges in goroutine
-	for _, t := range r.query.types {
-		go r.goExchange(r.query.target, r.server, t, resultsChan)
-	}
+	log.WithFields(log.Fields{
+		"qname":   qname,
+		"qtype":   dns.TypeToString[qtype],
+		"answers": rrs,
+	}).Info("get the answer for the resolve query")
 
-	for i := 0; i < nbTypes; i++ {
-		res := <-resultsChan
-
-		if res.error != nil {
-			// FIXME We should found a way to manage the errors.
-			// We spawn a goroutine for each QueryType and we get all the answers through a channel.
-			// If we stop at the first error encountered, we will have zombie goroutine because they
-			// 'll block on the send: resultsChan <- records.
-			// Maybe we can do some best efforts and return both Records (for types that have succeeded)
-			// and error for others (not sure the API'll be great).
-			raven.CaptureError(res.error, map[string]string{"unit": "resolver"})
-			log.Fatal(res.error)
-		}
-
-		if res.error == nil && len(res.records) > 0 {
-			recordsMap[res.QueryType] = res.records
-		}
-	}
-
-	return recordsMap, nil
+	return rrs
 }
 
-// Method to track the exchange value and forward the result through the channel.
-// This method should be use with a goroutine.
-func (r *Resolver) goExchange(target string, server string, queryType QueryType, resultsChan chan struct {
-	records []Record
-	QueryType
-	error
-}) {
-	records, err := r.exchange(target, server, queryType)
-	resultsChan <- struct {
-		records []Record
-		QueryType
-		error
-	}{records, queryType, err}
-}
+// mapRRFromDnsrIntoRR map the RR from dnsr into the RR of the miekg/dns library.
+func (r *Resolver) mapRRFromDnsrIntoRR(rrs dnsr.RRs) []dns.RR {
+	buf := []dns.RR{}
 
-func (r *Resolver) exchange(target string, server string, queryType QueryType) ([]Record, error) {
-	records := []Record{}
-
-	msg := &dns.Msg{}
-	target = AddFinalDotIfIsNotSet(target)
-	msg.SetQuestion(target, uint16(queryType))
-
-	client := &dns.Client{DialTimeout: r.timeout * time.Millisecond}
-
-	res, _, err := client.Exchange(msg, server)
-
-	if err != nil {
-		raven.CaptureError(err, map[string]string{"unit": "resolver"})
-		log.Fatal(err)
+	for _, rr := range rrs {
+		tmp, _ := dns.NewRR(rr.String())
+		buf = append(buf, tmp)
 	}
 
-	if err == nil && len(res.Answer) > 0 {
-		records = AnswersToRecord(target, res.Answer)
-	}
-
-	return records, err
-}
-
-// www.yolo.com -> www.yolo.com.
-func AddFinalDotIfIsNotSet(target string) string {
-	if target[len(target)-1:] != "." {
-		target = target + "."
-	}
-
-	return target
-}
-
-// 1.1.1.1 -> 1.1.1.1:53
-// We do nothing if the port is already define
-// 1.1.1.1:53 -> 1.1.1.1:53
-// 1.1.1.1:8053 -> 1.1.1.1:8053
-func AddDefaultDNSPortIfIsNotDefine(server string) string {
-	if server[len(server)-3:] != ":53" && !strings.Contains(server, ":") {
-		return server + ":53"
-	}
-
-	return server
-}
-
-func AnswersToRecord(target string, answers []dns.RR) []Record {
-	records := []Record{}
-
-	for _, answer := range answers {
-		record := AnswerToRecord(target, answer)
-		records = append(records, record)
-	}
-
-	return records
-}
-
-func AnswerToRecord(name string, answer dns.RR) Record {
-	rrtype := answer.Header().Rrtype
-	record := Record{
-		Name: answer.Header().Name,
-		Type: dns.TypeToString[rrtype],
-		Ttl:  int(answer.Header().Ttl),
-	}
-
-	// TODO support more type
-	switch uint16(rrtype) {
-	case dns.TypeA:
-		if a, ok := answer.(*dns.A); ok {
-			record.Content = a.A.String()
-		}
-	case dns.TypeAAAA:
-		if a4, ok := answer.(*dns.AAAA); ok {
-			record.Content = a4.AAAA.String()
-		}
-	case dns.TypeCNAME:
-		if cname, ok := answer.(*dns.CNAME); ok {
-			record.Content = cname.Target
-		}
-	case dns.TypeMX:
-		if mx, ok := answer.(*dns.MX); ok {
-			record.Content = mx.Mx
-			record.Priority = int(mx.Preference)
-		}
-	case dns.TypeNS:
-		if ns, ok := answer.(*dns.NS); ok {
-			record.Content = ns.Ns
-		}
-	case dns.TypeTXT:
-		if txt, ok := answer.(*dns.TXT); ok {
-			record.Content = strings.Join(txt.Txt, " ")
-		}
-	}
-
-	return record
+	return buf
 }

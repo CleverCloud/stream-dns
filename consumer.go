@@ -11,7 +11,7 @@ import (
 
 	a "stream-dns/agent"
 	ms "stream-dns/metrics"
-	u "stream-dns/utils"
+	"stream-dns/utils"
 
 	"github.com/Shopify/sarama"
 	cluster "github.com/bsm/sarama-cluster"
@@ -27,9 +27,11 @@ type consumer interface {
 }
 
 type KafkaConsumer struct {
+	db             *bolt.DB
 	config         KafkaConfig
 	configConsumer *cluster.Config
 	consumer       *cluster.Consumer
+	ms             *a.MetricsService
 }
 
 var SHA256 scram.HashGeneratorFcn = func() hash.Hash { return sha256.New() }
@@ -59,7 +61,39 @@ func (x *XDGSCRAMClient) Done() bool {
 	return x.ClientConversation.Done()
 }
 
-func NewKafkaConsumer(config KafkaConfig) (*KafkaConsumer, error) {
+func NewKafkaConsumer(config KafkaConfig, db *bolt.DB, metricsService *a.MetricsService) (*KafkaConsumer, error) {
+	brokers := config.Address
+	topics := config.Topics
+	consumerGroup := "stream-dns" + utils.RandString(10)
+
+	configConsumer, err := SetUpConsumerKafkaConfig(config)
+
+	if err != nil {
+		return nil, err
+	}
+
+	log.WithFields(log.Fields{
+		"address":   config.Address,
+		"sasl":      config.SaslEnable,
+		"tls":       config.TlsEnable,
+		"mechanism": config.Mechanism,
+	}).Info("Trying to connect to kafka brokers...")
+
+	consumer, err := cluster.NewConsumer(brokers, consumerGroup, topics, configConsumer)
+	if err != nil {
+		return nil, err
+	}
+
+	return &KafkaConsumer{
+		db:             db,
+		config:         config,
+		configConsumer: configConsumer,
+		consumer:       consumer,
+		ms:             metricsService,
+	}, nil
+}
+
+func SetUpConsumerKafkaConfig(config KafkaConfig) (*cluster.Config, error) {
 	configConsumer := cluster.NewConfig()
 	configConsumer.Consumer.Return.Errors = true
 	configConsumer.Net.SASL.Enable = false
@@ -69,7 +103,6 @@ func NewKafkaConsumer(config KafkaConfig) (*KafkaConsumer, error) {
 	configConsumer.Config.Metadata.Retry.Backoff = 10 * time.Second
 
 	if config.SaslEnable {
-		log.Info("SASL enabled for the consumer: ", config.Address)
 		configConsumer.Net.SASL.Enable = true
 		configConsumer.Net.SASL.User = config.User
 		configConsumer.Net.SASL.Password = config.Password
@@ -83,12 +116,11 @@ func NewKafkaConsumer(config KafkaConfig) (*KafkaConsumer, error) {
 			configConsumer.Net.SASL.Mechanism = sarama.SASLMechanism(sarama.SASLTypeSCRAMSHA256)
 
 		} else {
-			log.Fatalf("invalid SHA algorithm \"%s\": can be either \"sha256\" or \"sha512\"", config.Mechanism)
+			return nil, fmt.Errorf("Invalid SHA algorithm \"%s\": can be either \"sha256\" or \"sha512\"", config.Mechanism)
 		}
 	}
 
 	if config.TlsEnable {
-		log.Info("TLS enabled for the consumer: ", config.Address)
 		configConsumer.Net.TLS.Enable = true
 	}
 
@@ -96,76 +128,116 @@ func NewKafkaConsumer(config KafkaConfig) (*KafkaConsumer, error) {
 	configConsumer.Consumer.Offsets.Initial = sarama.OffsetOldest
 	configConsumer.Consumer.Offsets.CommitInterval = 10 * time.Second
 
-	brokers := config.Address
-	topics := config.Topics
-	consumerGroup := "stream-dns" + u.RandString(10)
-
-	consumer, err := cluster.NewConsumer(brokers, consumerGroup, topics, configConsumer)
-	if err != nil {
-		return nil, err
-	}
-
-	return &KafkaConsumer{config, configConsumer, consumer}, nil
+	return configConsumer, nil
 }
 
 // Run the kafka agent consumer which read all the records from the Kafka topics
 // Blocking call
-func (k *KafkaConsumer) Run(db *bolt.DB, metricsService *a.MetricsService, disallowCnameOnApex bool) error {
-	log.Infof("Kafka consumer connected to the kafka nodes: %s  and ready to consume", k.config.Address)
+func (c *KafkaConsumer) Run(disallowCnameOnApex bool) error {
+	log.WithFields(log.Fields{
+		"address": c.config.Address,
+	}).Infof("Kafka consumer connected to the kafka nodes and ready to consume")
 
 	for {
 		select {
-		case m, ok := <-k.consumer.Messages():
-			log.Info("Got record for domain: ", string(m.Key))
-			metricsService.GetOrCreateAggregator("nb-record", ms.Counter, false).(a.AggregatorCounter).Inc(1)
-
-			logRecordDiffIfTheRecordWasAlreayHere(db, m.Key, m.Value)
-
-			err := registerRecordAsBytesWithTheKeyInDB(db, m.Key, m.Value, disallowCnameOnApex)
-
-			if err != nil {
-				log.Error(err)
-				raven.CaptureError(err, nil)
-				metricsService.GetOrCreateAggregator("bad-record", ms.Counter, false).(a.AggregatorCounter).Inc(1)
-			} else {
-				metricsService.GetOrCreateAggregator("nb-record-saved", ms.Counter, false).(a.AggregatorCounter).Inc(1)
-			}
-
+		case m, ok := <-c.consumer.Messages():
+			c.treatKafkaMessage(m.Key, m.Value, disallowCnameOnApex) //TODO:print the timestamp
 			if !ok {
 				continue
 			}
 
-		case err := <-k.consumer.Errors():
-			metricsService.GetOrCreateAggregator("kafka-consumer-error", ms.Counter, false).(a.AggregatorCounter).Inc(1)
+		case err := <-c.consumer.Errors():
+			c.ms.GetOrCreateAggregator("kafka-consumer-error", ms.Counter, false).(a.AggregatorCounter).Inc(1)
 			log.WithError(err).Error("Kafka consumer error")
 		}
 	}
 
-	k.consumer.Close()
+	c.consumer.Close()
 	return nil
 }
 
-// Register a record from a consumer message e.g: kafka in the Bolt database
-func registerRecordAsBytesWithTheKeyInDB(db *bolt.DB, key []byte, record []byte, disallowCnameOnApex bool) error {
-	domain, qtype := u.ExtractQnameAndQtypeFromConsumerKey(key)
+func (c *KafkaConsumer) treatKafkaMessage(key []byte, payload []byte, disallowCnameOnApex bool) {
+	log.WithField("domain", string(key)).Info("Got a new record")
+	c.ms.GetOrCreateAggregator("nb-record", ms.Counter, false).(a.AggregatorCounter).Inc(1)
 
-	if disallowCnameOnApex && isCnameOnApexDomain(key) {
+	rrs, err := c.transformRecordIntoRR(payload)
+
+	if err != nil {
+		log.WithField("key", string(key)).Error("Malformated record, unable to convert it into RR structure")
+		return
+	}
+
+	c.logRecordDiffIfTheRecordWasAlreayHere(key, rrs)
+
+	err = c.registerRecordAsBytesWithTheKeyInDB(key, rrs, disallowCnameOnApex)
+
+	if err != nil {
+		log.Error(err)
+		raven.CaptureError(err, nil)
+		c.ms.GetOrCreateAggregator("bad-record", ms.Counter, false).(a.AggregatorCounter).Inc(1)
+	} else {
+		c.ms.GetOrCreateAggregator("nb-record-saved", ms.Counter, false).(a.AggregatorCounter).Inc(1)
+	}
+}
+
+func (c *KafkaConsumer) checkGuardsOnRRsRegistration(domain string, qtype uint16, disallowCnameOnApex bool) (err error) {
+	if disallowCnameOnApex && c.isCnameOnApexDomain(domain, qtype) {
 		return fmt.Errorf("Can't register the domain: %s \tCNAME on APEX domain are disallow.\nYou must define at true the env variable DISALLOW_CNAME_ON_APEX to allow it", domain)
 	}
 
-	return db.Update(func(tx *bolt.Tx) error {
-		b, err := tx.CreateBucketIfNotExists([]byte("records"))
+	if utils.IsSubdomain(domain) {
+		err = c.db.View(func(tx *bolt.Tx) (err error) {
+			b := tx.Bucket([]byte(RecordBucket))
 
-		if err != nil {
-			return nil
-		}
-
-		if u.IsSubdomain(domain) {
 			// On subdomains: when CNAME already exists: allow only new CNAME.
 			if b.Get([]byte(domain+".|CNAME")) != nil && qtype != dns.TypeCNAME {
-				return fmt.Errorf("can't update the domain: %s a CNAME already exists", domain)
+				return fmt.Errorf("Can't update the domain: %s a CNAME already exists", domain)
 			}
 
+			return
+		})
+	}
+
+	return
+}
+
+func (c *KafkaConsumer) transformRecordIntoRR(rawRecord []byte) (rrs []dns.RR, err error) {
+	record, err := c.tryUnmarshalRecord(rawRecord)
+
+	if err != nil {
+		return
+	}
+
+	rrs, err = MapRecordsIntoRRs(record)
+
+	if err != nil {
+		return
+	}
+
+	return
+}
+
+// Register a record from a consumer message e.g: kafka in the Bolt database
+func (c *KafkaConsumer) registerRecordAsBytesWithTheKeyInDB(key []byte, rrs []dns.RR, disallowCnameOnApex bool) error {
+	domain, qtype := utils.ExtractQnameAndQtypeFromKey(key)
+	isSubDomain := utils.IsSubdomain(domain)
+
+	err := c.checkGuardsOnRRsRegistration(domain, qtype, disallowCnameOnApex)
+
+	if err != nil {
+		return err
+	}
+
+	rrsRaw, err := json.Marshal(rrs)
+
+	if err != nil {
+		return err
+	}
+
+	err = c.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(RecordBucket))
+
+		if isSubDomain {
 			// On subdomains: when a CNAME comes, remove all previous records and replace with CNAME.
 			if qtype == dns.TypeCNAME {
 				// Keep the values in cache to rollback in case of error during register the CNAME
@@ -179,79 +251,61 @@ func registerRecordAsBytesWithTheKeyInDB(db *bolt.DB, key []byte, record []byte,
 			}
 		}
 
-		record, err = tryUnmarshalRecordAndEncodeResult(record)
+		err := b.Put(key, rrsRaw)
 
 		if err != nil {
 			return err
 		}
-
-		err = b.Put(key, record)
-
-		if err != nil {
-			return err
-		}
-
-		log.Infof("Saved record for the domain %s.|%s:\n%s", domain, dns.TypeToString[qtype], string(record))
 
 		return nil
 	})
+
+	log.WithField("rr", utils.RRsIntoString(rrs)).Infof("Saved a new record in DB")
+	return err
 }
 
-// This method allow to accept as input: JSON array or object of record(s)
-// and this'll check that the record is well formated in order to avoid saving bad record.
-func tryUnmarshalRecord(record []byte) ([]Record, error) {
-	var recordArrayDecoded []Record
-	errArray := json.Unmarshal([]byte(record), &recordArrayDecoded)
-
-	if errArray != nil {
-		// Try to unmarshal Record as an object too (best effort)
-		var recDecoded Record
-		err := json.Unmarshal([]byte(record), &recDecoded)
-
-		if err != nil {
-			return nil, errArray
-		}
-
-		return []Record{recDecoded}, nil
-	}
-
-	return recordArrayDecoded, nil
+func (c *KafkaConsumer) isCnameOnApexDomain(domain string, qtype uint16) bool {
+	return utils.IsApexDomain(domain) && dns.TypeCNAME == qtype
 }
 
-func tryUnmarshalRecordAndEncodeResult(record []byte) ([]byte, error) {
-	tmp, err := tryUnmarshalRecord(record)
-
-	if err != nil {
-		return nil, err
-	}
-
-	return json.Marshal(tmp)
+func (c *KafkaConsumer) tryUnmarshalRecord(rawRecord []byte) (records []Record, err error) {
+	err = json.Unmarshal(rawRecord, &records)
+	return
 }
 
-func isCnameOnApexDomain(key []byte) bool {
-	domain, qtype := u.ExtractQnameAndQtypeFromConsumerKey(key)
-	return u.IsApexDomain(domain) && dns.TypeCNAME == qtype
-}
+// Look in the DB if the RR already exist
+// If yes, we print the diff between the two RR
+func (c *KafkaConsumer) logRecordDiffIfTheRecordWasAlreayHere(key []byte, rrs []dns.RR) {
+	var previousRRraw []byte
+	var previousRR []dns.RR
 
-func logRecordDiffIfTheRecordWasAlreayHere(db *bolt.DB, key []byte, recordEncoded []byte) {
-	var previousRecordEncoded []byte = []byte{}
-	newRecord, err := tryUnmarshalRecord(recordEncoded)
+	c.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(RecordBucket))
+		previousRRraw = b.Get(key)
+		return nil
+	})
 
-	if err == nil {
-		db.Update(func(tx *bolt.Tx) error {
-			b, _ := tx.CreateBucketIfNotExists([]byte("records"))
-			previousRecordEncoded = b.Get(key)
-			return nil
-		})
+	if previousRRraw != nil {
+		err := json.Unmarshal(previousRRraw, &previousRR)
 
-		var previousRecord []Record
-		json.Unmarshal(previousRecordEncoded, &previousRecord)
+		if err == nil {
+			diffContent := false
 
-		if previousRecord != nil && recordsAreNotEqual(previousRecord, newRecord) {
-			log.WithFields(log.Fields{
-				"before": previousRecord,
-				"after":  newRecord,
-			}).Infof("The record %s has changed", string(key))
+			//check the difference in the content
+			if len(previousRR) == len(rrs) {
+				for i, previousRR := range previousRR {
+					if !dns.IsDuplicate(previousRR, rrs[i]) {
+						diffContent = true
+					}
+				}
+			}
+
+			if len(previousRR) != len(rrs) || diffContent {
+				log.WithFields(log.Fields{
+					"before": previousRR,
+					"after":  rrs,
+				}).Infof("The record %s has changed", string(key))
+			}
 		}
 	}
 }

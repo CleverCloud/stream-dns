@@ -7,6 +7,7 @@ require (
 	github.com/bsm/sarama-cluster v2.1.15+incompatible
 	github.com/certifi/gocertifi v0.0.0-20190506164543-d2eda7129713 // indirect
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible
+	github.com/domainr/dnsr v0.0.0-20191026082256-4a376113620b
 	github.com/getsentry/raven-go v0.2.0
 	github.com/google/uuid v1.1.1
 	github.com/labstack/gommon v0.3.0

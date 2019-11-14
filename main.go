@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	a "stream-dns/agent"
 	"stream-dns/output"
+	"stream-dns/utils"
 	"strings"
 	"syscall"
 	"time"
@@ -52,6 +53,8 @@ func init() {
 	viper.SetEnvPrefix("DNS") // Avoid collisions with others env variables
 }
 
+var RecordBucket = []byte("records")
+
 func main() {
 	config := getConfiguration()
 
@@ -60,7 +63,7 @@ func main() {
 	raven.SetDSN(config.sentryDSN)
 
 	db := setupRecordsDatabase(config.PathDB)
-	setupLocalRecords(db, config.LocalRecords)
+	setupLocalRecords(db, config.LocalRecords, config.Dns.Zones)
 
 	agent := setupMetricAgent(config.Agent, config.Statsd, instanceID)
 
@@ -86,7 +89,7 @@ func setupRecordsDatabase(path string) (db *bolt.DB) {
 	db, err := bolt.Open(path, 0600, nil)
 
 	err = db.Update(func(tx *bolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists([]byte("records"))
+		_, err := tx.CreateBucketIfNotExists([]byte(RecordBucket))
 
 		if err != nil {
 			return err
@@ -128,7 +131,6 @@ func getConfiguration() Config {
 			viper.GetBool("udp"),
 			viper.GetBool("tcp"),
 			viper.GetStringSlice("zones"),
-			viper.GetString("resolver_address"),
 		},
 		AgentConfig{
 			viper.GetInt("metrics_buffer_size"),
@@ -152,13 +154,18 @@ func getConfiguration() Config {
 	}
 }
 
-func setupLocalRecords(db *bolt.DB, rawLocalRecords string) {
+func setupLocalRecords(db *bolt.DB, rawLocalRecords string, zones []string) {
 	if rawLocalRecords != "" {
-		localRecords, err := localARecordsRawIntoRecords(rawLocalRecords)
+		localRecords, err := localARecordsRawIntoRecords(rawLocalRecords, zones)
 
 		if err == nil {
-			registerLocalRecords(db, localRecords)
-			log.Info("Local records from configuration has been saved")
+			err = registerLocalRecords(db, localRecords)
+
+			if err != nil {
+				log.Error(err)
+			} else {
+				log.Info("Local records from configuration has been saved")
+			}
 		} else {
 			log.Error("Local records", err)
 			os.Exit(1)
@@ -182,14 +189,14 @@ func setupMetricAgent(cfg AgentConfig, statsdCfg StatsdConfig, instanceID string
 }
 
 func setupKafkaConsumer(db *bolt.DB, cfg KafkaConfig, metricsService *a.MetricsService, disallowCnameOnAPEX bool) {
-	kafkaConsumer, err := NewKafkaConsumer(cfg)
+	kafkaConsumer, err := NewKafkaConsumer(cfg, db, metricsService)
 
 	if err != nil {
 		log.Panic(err)
 		raven.CaptureError(err, nil)
 	}
 
-	go kafkaConsumer.Run(db, metricsService, disallowCnameOnAPEX)
+	go kafkaConsumer.Run(disallowCnameOnAPEX)
 }
 
 func setupDNSserveDNSr(db *bolt.DB, cfg DnsConfig, metricsService *a.MetricsService) {
@@ -197,19 +204,20 @@ func setupDNSserveDNSr(db *bolt.DB, cfg DnsConfig, metricsService *a.MetricsServ
 }
 
 func serveDNS(db *bolt.DB, config DnsConfig, metricsService *a.MetricsService) {
-	registerHandlerForResolver(".", db, config.ResolverAddress, metricsService)
-	registerHandlerForZones(config.Zones, db, metricsService)
+	handler := NewQuestionResolverHandler(db, config, metricsService)
 
 	if config.Udp {
 		serverudp := &dns.Server{Addr: config.Address, Net: "udp", TsigSecret: nil}
+		serverudp.Handler = &handler
 		go serverudp.ListenAndServe()
-		log.Info("UDP serveDNSr listening on: ", config.Address)
+		log.WithField("address", config.Address).Info("UDP serveDNS listening")
 	}
 
 	if config.Tcp {
 		servertcp := &dns.Server{Addr: config.Address, Net: "tcp", TsigSecret: nil}
+		servertcp.Handler = &handler
 		go servertcp.ListenAndServe()
-		log.Info("TCP serveDNSr listening on: ", config.Address)
+		log.WithField("address", config.Address).Info("TCP serveDNS listening")
 	}
 }
 
@@ -220,11 +228,11 @@ func setupHTTPAdministratorserveDNSr(db *bolt.DB, cfg AdministratorConfig) {
 
 // FIXME: For now, the local-records can only accept A Rtype DNS record
 // we can improve this to accept any type of Rtype and improve the parsing.
-func registerLocalRecords(db *bolt.DB, records []Record) error {
-	tmp := make(map[string][]Record)
+func registerLocalRecords(db *bolt.DB, records []dns.RR) error {
+	tmp := make(map[string][]dns.RR)
 
-	for _, r := range records {
-		tmp[fmt.Sprintf("%s|A", r.Name)] = []Record{r}
+	for _, rr := range records {
+		tmp[fmt.Sprintf("%s|%s", dns.Fqdn(rr.Header().Name), dns.TypeToString[rr.Header().Rrtype])] = []dns.RR{rr}
 	}
 
 	for key, r := range tmp {
@@ -237,7 +245,7 @@ func registerLocalRecords(db *bolt.DB, records []Record) error {
 		keyRaw := []byte(key)
 
 		err = db.Update(func(tx *bolt.Tx) error {
-			b, _ := tx.CreateBucketIfNotExists([]byte("records"))
+			b, _ := tx.CreateBucketIfNotExists(RecordBucket)
 
 			err := b.Put(keyRaw, recordRaw)
 
@@ -248,7 +256,11 @@ func registerLocalRecords(db *bolt.DB, records []Record) error {
 			return nil
 		})
 
-		return err
+		log.WithField("rr", r[0].Header().Name).Info("saved local record")
+
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -256,36 +268,29 @@ func registerLocalRecords(db *bolt.DB, records []Record) error {
 
 // The local records are read through the env variable as a string
 // This method take a string and transform it into a slice of Record
-// FIXME: For now, the local-records can only accept A Rtype DNS record
-// we can improve this to accept any type of Rtype and improve the parsing.
-func localARecordsRawIntoRecords(rawRecords string) ([]Record, error) {
-	records := []Record{}
+// Example: DNS_LOCAL_RECORDS="foo.internal. 3600 IN A 1.2.3.4 \n tar.internal. 3600 IN A 1.2.3.5"
+func localARecordsRawIntoRecords(rawRecords string, zones []string) ([]dns.RR, error) {
+	rrs := []dns.RR{}
 
 	if rawRecords != "" {
 		rawRecordsSlice := strings.Split(rawRecords, "\n")
 
-		for _, r := range rawRecordsSlice {
-			var name string
-			var ttl int
-			var content string
-			_, err := fmt.Sscanf(r, "%s %d IN A %s", &name, &ttl, &content)
+		for _, rrRaw := range rawRecordsSlice {
+			rr, err := dns.NewRR(strings.TrimSpace(rrRaw))
 
 			if err != nil {
-				return nil, fmt.Errorf("Malformated A local record, expected: \"[NAME]. [TTL] IN A [CONTENT]\" \tgot the error: %s", err)
+				return nil, err
 			}
 
-			record := Record{
-				Name:     name,
-				Type:     "A",
-				Content:  content,
-				Ttl:      ttl,
-				Priority: 0,
-			}
+			log.WithField("rr", rr.String()).Info("loaded a local record")
 
-			records = append(records, record)
+			if utils.IsALocalRR(rr.Header().Name, zones) {
+				rrs = append(rrs, rr)
+			} else {
+				log.WithField("rr", rr.Header().Name).Warn("can't load the record for a non-managed zones")
+			}
 		}
-
 	}
 
-	return records, nil
+	return rrs, nil
 }

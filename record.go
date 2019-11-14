@@ -6,6 +6,8 @@ import (
 	dns "github.com/miekg/dns"
 )
 
+// Structure used to convert record
+// from kafka in a JSON format into RR
 type Record struct {
 	Name     string
 	Type     string
@@ -49,7 +51,10 @@ func recordSOAToString(record Record) string {
 	return fmt.Sprintf("%s %d IN SOA %s", record.Name, record.Ttl, record.Content)
 }
 
-func RecordToAnswer(record Record) dns.RR {
+// RecordToRR converts a Record to a dns.RR.
+// If the RR is not a type that this package uses,
+// it returns a nil RR.
+func RecordToRR(record Record) dns.RR {
 	var rr dns.RR
 	rtype := dns.StringToType[record.Type]
 	recordstr := recordToString(record)
@@ -78,30 +83,11 @@ func RecordToAnswer(record Record) dns.RR {
 	return rr
 }
 
-func RecordsToAnswer(records []Record) []dns.RR {
-	var rrs []dns.RR
-	for _, record := range records {
-		rrs = append(rrs, RecordToAnswer(record))
+// Convert slice of Record into a  slice of dns.RR
+func MapRecordsIntoRRs(records []Record) (rrs []dns.RR, err error) {
+	for _, r := range records {
+		rrs = append(rrs, RecordToRR(r))
 	}
 
-	return rrs
-}
-
-func recordsAreEqual(a []Record, b []Record) bool {
-
-	if len(a) != len(b) {
-		return false
-	}
-
-	for i, _ := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-
-	return true
-}
-
-func recordsAreNotEqual(a []Record, b []Record) bool {
-	return recordsAreEqual(a, b) == false
+	return
 }

@@ -7,7 +7,7 @@ Stream-dns can listen for DNS requests coming in over UDP/TCP and use kafka as d
 Currently Stream-dns is able to:
 
 * Serve zone data and resolve for none zone authority
-* act as a primaries server (AXFR only)
+* act as a primaries server
 * Automatically load zone from Kafka.
 * Forward queries to some other (recursive) nameserver.
 * Provide metrics with the `statsd` format
@@ -53,7 +53,6 @@ The following environment variables can be set:
 | DNS_ADDRESS                | string         | Address for the DNS server e.g: ":8053"                                                                                                                 |
 | DNS_TCP                    | bool           | Accept TCP DNS connection                                                                                                                               |
 | DNS_UDP                    | bool           | Accept UDP DNS connection                                                                                                                               |
-| DNS_RESOLVER_ADDRESS       | string         | Address use to resolve unsupported zone                                                                                                                 |
 | DNS_ZONES                  | List of string | List of supported zones e.g: "clvrcld.net. services.clever-cloud.com." (separate by whitespace)                                                         |
 | DNS_KAFKA_ADDRESS          | string         | Address of one kafka node e.g: "localhost:9092"                                                                                                         |
 | DNS_KAFKA_TOPIC            | string         | Kafka topic of the records                                                                                                                              |

@@ -39,11 +39,10 @@ type KafkaConfig struct {
 }
 
 type DnsConfig struct {
-	Address         string
-	Udp             bool
-	Tcp             bool
-	Zones           []string
-	ResolverAddress string
+	Address string
+	Udp     bool
+	Tcp     bool
+	Zones   []string
 }
 
 type AgentConfig struct {

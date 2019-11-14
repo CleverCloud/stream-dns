@@ -46,8 +46,6 @@ func NewAgent(config Config) Agent {
 }
 
 func (a *Agent) Run() error {
-	log.Infof("[agent] Config: Flush Interval:%s", a.Config.FlushInterval)
-
 	err := a.connectOutputs()
 
 	if err != nil {
@@ -94,7 +92,7 @@ func (a *Agent) connectOutputs() error {
 			log.Fatal("[agent] Failed to connect to output: ", output.Name(), "error was: ", err)
 		}
 
-		log.Info("[agent] Successfully connected to output: ", output.Name())
+		log.WithField("output", output.Name()).Info("metric agent successfully connected to the output")
 	}
 
 	return nil
@@ -102,7 +100,7 @@ func (a *Agent) connectOutputs() error {
 
 // Create a deepcopy of the metrics slice and send it to outputs
 func (a *Agent) flushMetricsToOutput(metricsBuffer []metrics.Metric) {
-	log.Infof("wrote batch of %d metrics", len(metricsBuffer))
+	log.WithField("length", len(metricsBuffer)).Infof("wrote a batch of metrics")
 	// Create an immutable slice of this metrics. We need the buff for the next loop
 	tmp := make([]metrics.Metric, len(metricsBuffer))
 	copy(tmp, metricsBuffer)

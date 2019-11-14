@@ -10,6 +10,7 @@ import (
 	u "stream-dns/utils"
 
 	"github.com/dgrijalva/jwt-go"
+	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 	bolt "go.etcd.io/bbolt"
 )
@@ -141,33 +142,44 @@ func (h *HttpAdministrator) searchRecords(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	var records [][]Record
+	var rrsRaw []PairKeyRRraw
 
 	h.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte("records"))
+		b := tx.Bucket(RecordBucket)
 
 		c := b.Cursor()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			domain, _ := u.ExtractQnameAndQtypeFromConsumerKey(k)
+			domain, _ := u.ExtractQnameAndQtypeFromKey(k)
 
 			if strings.Contains(domain, pattern) {
-				var record []Record
-				err := json.Unmarshal([]byte(v), &record)
-
-				if err != nil {
-					return err
-				}
-				records = append(records, record)
+				rrsRaw = append(rrsRaw, PairKeyRRraw{k, v})
 			}
 		}
 
 		return nil
 	})
 
+	rrs := [][]dns.RR{}
+
+	for _, rrRaw := range rrsRaw {
+		rrstmp, err := mapPairKeyRawRRsIntoRR(rrRaw)
+
+		//TODO: improve this
+		if err != nil {
+			log.Error(err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		log.Info(rrstmp)
+
+		rrs = append(rrs, rrstmp)
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(records)
+	json.NewEncoder(w).Encode(rrs)
 }
 
 //FIXME: Manage the http.StatusBadRequest too.
