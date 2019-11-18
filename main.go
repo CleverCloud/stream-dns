@@ -86,7 +86,7 @@ func setupRecordsDatabase(path string) (db *bolt.DB) {
 	db, err := bolt.Open(path, 0600, nil)
 
 	err = db.Update(func(tx *bolt.Tx) error {
-		_, err := tx.CreateBucket([]byte("records"))
+		_, err := tx.CreateBucketIfNotExists([]byte("records"))
 
 		if err != nil {
 			return err
