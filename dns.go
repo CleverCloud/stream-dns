@@ -4,409 +4,392 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	s "strings"
+	a "stream-dns/agent"
+	"stream-dns/utils"
+	"time"
 
-	"github.com/getsentry/raven-go"
+	"github.com/google/uuid"
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
-	"github.com/spf13/viper"
 	bolt "go.etcd.io/bbolt"
-
-	a "stream-dns/agent"
-	ms "stream-dns/metrics"
-	u "stream-dns/utils"
 )
 
-func intoWildcardQName(qname string) string {
-	return fmt.Sprintf("*%s", qname[s.Index(qname, "."):len(qname)-1])
+// DNS Resolution configuration.
+const (
+	Timeout             = 2000 * time.Millisecond
+	TypicalResponseTime = 100 * time.Millisecond
+	MaxRecursion        = 5
+	MaxNameservers      = 4
+)
+
+// Resolver errors.
+var (
+	NXDOMAIN = fmt.Errorf("NXDOMAIN")
+
+	ErrMaxRecursion = fmt.Errorf("maximum recursion depth reached: %d", MaxRecursion)
+	ErrTimeout      = fmt.Errorf("timeout expired")
+)
+
+// AllDomain is a constant to match all the domain by using the QNAME
+const AllDomain = "."
+
+type PairKeyRRraw struct {
+	key    []byte
+	rrsRaw []byte
 }
 
-func isWildcardQName(qname string) bool {
-	return qname[0] == '*'
+// QuestionResolverHandler handler to answer to DNS question
+type QuestionResolverHandler struct {
+	db             *bolt.DB
+	config         DnsConfig
+	metricsService *a.MetricsService
+	resolver       *Resolver
 }
 
-func isNotWildcardQName(qname string) bool {
-	return isWildcardQName(qname) == false
+// NewQuestionResolverHandler create a new QuestionResolverHandler
+func NewQuestionResolverHandler(db *bolt.DB, config DnsConfig, ms *a.MetricsService) QuestionResolverHandler {
+	return QuestionResolverHandler{
+		db:             db,
+		config:         config,
+		metricsService: ms,
+		resolver:       NewResolver(), //TODO: make timeout configurable
+	}
 }
 
-func isSameQtypeOrItsCname(qtypeQuestion uint16, qtypeRecord uint16) bool {
-	return qtypeRecord == qtypeQuestion || qtypeRecord == dns.TypeCNAME
-}
+// ServeDNS is the handler registered in the dns.Server.Handler
+func (h *QuestionResolverHandler) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
+	requestID := uuid.New().String()
 
-func filterByQtypeAndCname(records []Record, qtype uint16) []Record {
-	var filteredRecords []Record
+	var rcode int
+	msg := dns.Msg{}
+	msg.SetReply(r)
+	question := msg.Question[0] // we only support one question
 
-	for _, record := range records {
-		rrTypeRecord := dns.StringToType[record.Type]
+	if h.isALocalRecord(dns.Fqdn(question.Name)) {
+		msg.Authoritative = true
+		msg.RecursionAvailable = true
+	}
 
-		if isSameQtypeOrItsCname(qtype, rrTypeRecord) {
-			filteredRecords = append(filteredRecords, record)
+	log.WithFields(log.Fields{
+		"ip":         w.RemoteAddr,
+		"request-id": requestID,
+		"domain":     question.Name,
+		"qtype":      dns.TypeToString[question.Qtype],
+		"qclass":     dns.ClassToString[question.Qclass],
+	}).Info("Got a new DNS question")
+
+	rcode, msg.Answer = h.resolveQuestion(question, msg.RecursionDesired)
+
+	log.WithFields(log.Fields{
+		"ip":         w.RemoteAddr,
+		"request-id": requestID,
+		"domain":     question.Name,
+		"qtype":      dns.TypeToString[question.Qtype],
+		"qclass":     dns.ClassToString[question.Qclass],
+		"answers":    msg.Answer,
+	}).Info("Find answer for the question")
+
+	// May optionally carry the SOA RR for the authoritative data in the answer section. c.f RFC 1034
+	if len(msg.Answer) == 0 && h.isALocalRecord(question.Name) {
+		msg.Authoritative = true
+		zone := utils.GetZoneFromQname(question.Name)
+		soa := h.getSOAForTheZone(zone)
+
+		if soa != nil {
+			msg.Ns = append(msg.Ns, soa)
 		}
 	}
 
-	return filteredRecords
-}
-
-func getRecordsFromBucket(bucket *bolt.Bucket, qname string) ([][]Record, error) {
-	var records [][]Record = [][]Record{}
-	c := bucket.Cursor()
-
-	prefix := []byte(qname)
-	for k, v := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, v = c.Next() {
-		var record []Record
-		err := json.Unmarshal([]byte(v), &record)
-
-		if err != nil {
-			raven.CaptureError(err, map[string]string{"unit": "dns"})
-			return nil, err
-		} else {
-			records = append(records, record)
-		}
-	}
-
-	if isNotWildcardQName(qname) && len(records) == 0 {
-		c.First()
-
-		prefixWildcard := []byte(intoWildcardQName(qname))
-		for k, v := c.Seek(prefixWildcard); k != nil && bytes.HasPrefix(k, prefixWildcard); k, v = c.Next() {
-			var record []Record
-
-			err := json.Unmarshal([]byte(v), &record)
-			if err != nil {
-				raven.CaptureError(err, map[string]string{"unit": "dns"})
-				return nil, err
-			} else {
-				records = append(records, record)
-			}
-		}
-	}
-
-	return records, nil
-}
-
-func registerHandlerForResolver(pattern string, db *bolt.DB, address string, metricsService *a.MetricsService) {
-	dns.HandleFunc(pattern, func(w dns.ResponseWriter, r *dns.Msg) {
-		qname := r.Question[0].Name
-		qtype := r.Question[0].Qtype
-		remoteAddr := w.RemoteAddr()
-
-		log.Infof("[DNS] Got a request from %s::%s for unsupported zone: %s for the type %s", remoteAddr.Network(), remoteAddr.String(), qname, dns.TypeToString[qtype])
-		metricsService.GetOrCreateAggregator("resolver-request", ms.Counter, true).(a.AggregatorCounter).Inc(1)
-
-		m := new(dns.Msg)
-		m.SetReply(r)
-
-		if qtype == dns.TypeAXFR {
-			// If a server is not authoritative for the queried zone, the server SHOULD set the value to NotAuth(9).
-			// The query has reached the resolver with an AXFR type then the query ask for a not authoritative zone.
-			// More info: IETF RFC-5936 https://tools.ietf.org/html/rfc5936#section-2.2.1
-			m.SetRcode(r, dns.RcodeNotAuth) // Server Not Authoritative for zone
-		} else {
-			answers, err := resolverLookup(address, qname, qtype)
-
-			if err != nil {
-				metricsService.GetOrCreateAggregator("resolver-request-error", ms.Counter, true).(a.AggregatorCounter).Inc(1)
-
-				raven.CaptureError(err, map[string]string{"unit": "dns"})
-				log.Errorf("Resolver: %s for %s %s", err, qname, dns.TypeToString[qtype])
-				m.SetRcode(r, dns.RcodeServerFailure)
-			} else {
-				for _, answer := range answers {
-					m.Answer = append(m.Answer, answer)
-				}
-				m.SetRcode(r, dns.RcodeSuccess)
-			}
-		}
-
-		w.WriteMsg(m)
-		metricsService.GetOrCreateAggregator("resolver-request-answered", ms.Counter, true).(a.AggregatorCounter).Inc(1)
-
-		answersfmt := u.FormatAnswers(m.Answer)
-		log.Infof("[DNS] Answered to %s::%s request: %s with the type %s - found %d answer(s): \n %s",
-			remoteAddr.Network(), remoteAddr.String(), qname, dns.TypeToString[qtype], len(m.Answer), answersfmt)
-	})
-}
-
-func resolverLookup(address string, qname string, qtype uint16) ([]dns.RR, error) {
-	query := NewQuery(qname, QueryType(qtype))
-	resolver := NewResolver(address, query, 2, 4)
-
-	records, err := resolver.Lookup()
+	msg.SetRcode(r, rcode)
+	err := w.WriteMsg(&msg)
 
 	if err != nil {
-		raven.CaptureError(err, map[string]string{"unit": "dns", "action": "lookup"})
-		return nil, err
-	}
-
-	answers := RecordsToAnswer(records[QueryType(qtype)])
-	return answers, nil
-}
-
-func registerHandlerForZones(zones []string, db *bolt.DB, metricsService *a.MetricsService) {
-	for _, z := range zones {
-		registerHandlerForZone(z, db, metricsService)
+		log.WithFields(log.Fields{
+			"ip":         w.RemoteAddr,
+			"request-id": requestID,
+			"domain":     question.Name,
+			"qtype":      dns.TypeToString[question.Qtype],
+			"qclass":     dns.ClassToString[question.Qclass],
+		}).Error(err)
 	}
 }
 
-// Register a zone e.g: foo.com with the default handler
-func registerHandlerForZone(zone string, db *bolt.DB, metricsService *a.MetricsService) {
-	dns.HandleFunc(zone, func(w dns.ResponseWriter, r *dns.Msg) {
-		qname := r.Question[0].Name
-		qtype := r.Question[0].Qtype
-
-		remoteAddr := w.RemoteAddr()
-		log.Infof("[DNS] Got a request from %s::%s for %s with the type %s ", remoteAddr.Network(), remoteAddr.String(), r.Question[0].Name, dns.TypeToString[qtype])
-		metricsService.GetOrCreateAggregator("nb-dns-requests", ms.Counter, true).(a.AggregatorCounter).Inc(1)
-
-		m := new(dns.Msg)
-		m.SetReply(r)
-
-		if qtype == dns.TypeAXFR {
-			if viper.GetBool(ALLOW_AXFR) {
-				handlerZoneTransfer(qname, db, m, r, w, metricsService)
-			} else {
-				log.Errorf("[CONFIG] AXFR request is not allowed unless you turn option %s on.", formatConfig(ALLOW_AXFR))
-				w.WriteMsg(m)
-			}
-		} else {
-			err := findRecordsAndSetAsAnswersInMessage(qname, qtype, db, m, r, metricsService)
-
-			if err != nil {
-				metricsService.GetOrCreateAggregator("requests-error", ms.Counter, true).(a.AggregatorCounter).Inc(1)
-				raven.CaptureError(err, map[string]string{"unit": "dns", "action": "find records"})
-				log.Fatal("[dns]: ", err)
-			} else {
-				metricsService.GetOrCreateAggregator("requests-answered-successfully", ms.Counter, true).(a.AggregatorCounter).Inc(1)
-			}
-
-			w.WriteMsg(m)
-			answersfmt := u.FormatAnswers(m.Answer)
-			log.Infof("[DNS] Answered to %s::%s request: %s with the type %s - found %d answer(s): \n%s",
-				remoteAddr.Network(), remoteAddr.String(), qname, dns.TypeToString[qtype], len(m.Answer), answersfmt)
-		}
-	})
-}
-
-//FIXME: This algorithme is not optimal...We should improve this
-//First, we recurse on all CNAMEs until we Get a last domain wich is not a CNAME
-//We get all records prefixed by this last domain
-func recursionOnCname(b *bolt.Bucket, record Record) [][]Record {
-	var records [][]Record
-	tmp := record
-
-	// Recurse on chain of CNAME
-	for tmp.Type == dns.TypeToString[dns.TypeCNAME] {
-		v := b.Get([]byte(tmp.Content + "|" + dns.TypeToString[dns.TypeCNAME]))
-		if v != nil {
-			var recordTmp []Record
-			err := json.Unmarshal([]byte(v), &recordTmp)
-
-			if err != nil {
-				break // just abort and return what we have
-			}
-
-			records = append(records, recordTmp)
-
-			// We doesn't allow CNAME to point on multiples CNAMES
-			if len(recordTmp) == 1 && recordTmp[0].Type == dns.TypeToString[dns.TypeCNAME] {
-				//continue the recursion but register this CNAME
-				tmp = recordTmp[0]
-			}
-		} else {
-			// We don't have a concrete record in the DB
-			break
-		}
-	}
-
-	// Found the last concrete record: A, AAAA
-	c := b.Cursor()
-	prefix := []byte(tmp.Content)
-
-	for k, v := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, v = c.Next() {
-		var res []Record
-		err := json.Unmarshal([]byte(v), &res)
-
-		if err != nil {
-			log.Error("json.unmarshal on record", string(k))
-		}
-
-		records = append(records, res)
-	}
-
-	return records
-}
-
-func findRecordsAndSetAsAnswersInMessage(qname string, qtype uint16, db *bolt.DB, m *dns.Msg, r *dns.Msg, metricsService *a.MetricsService) error {
-	err := db.View(func(tx *bolt.Tx) error {
-		recordsBucket := tx.Bucket([]byte("records"))
-
-		records, err := getRecordsFromBucket(recordsBucket, qname)
-
-		// recursion on CNAME
-		// We do a recursion only if we request a domain and we got only a CNAME has answer
-		if len(records) == 1 && len(records[0]) == 1 && records[0][0].Type == dns.TypeToString[dns.TypeCNAME] {
-			recordsFoundByRecursionOnCNAME := recursionOnCname(recordsBucket, records[0][0])
-			for _, r := range recordsFoundByRecursionOnCNAME {
-				records = append(records, r)
-			}
-
-			replaceWildcardByQnameInAnswer(qname, records)
-		}
-
-		if err != nil {
-			raven.CaptureError(err, map[string]string{"unit": "dns", "action": "find records"})
-			metricsService.GetOrCreateAggregator("fail-find-bbolt", ms.Counter, true).(a.AggregatorCounter).Inc(1)
-			return err
-		} else {
-			if len(records) > 0 {
-				for _, subRecords := range records {
-					if qtype != dns.TypeCNAME {
-						subRecords = filterByQtypeAndCname(subRecords, qtype)
-					}
-					answers := RecordsToAnswer(subRecords)
-
-					for _, record := range answers {
-						m.Answer = append(m.Answer, record)
-					}
-				}
-			} else {
-				m.SetRcode(r, dns.RcodeNameError) // return NXDOMAIN
-			}
-		}
-
-		m.SetRcode(r, dns.RcodeSuccess)
-		return nil
-	})
+// Main point to resolve a question
+// That call the method lookupRecord to get the RRs.
+// The Rcode depend on the RRs got and the error from the call of the submethod lookupRecord
+func (h *QuestionResolverHandler) resolveQuestion(question dns.Question, recursionDesired bool) (rcode int, rrs []dns.RR) {
+	rrs, err := h.lookupRecord(dns.Fqdn(question.Name), question.Qtype, recursionDesired, 0)
+	replaceWildcardByQnameInRRsIfThereAre(rrs, question.Name)
+	rcode = dns.RcodeSuccess
 
 	if err != nil {
-		metricsService.GetOrCreateAggregator("err-queries", ms.Counter, true).(a.AggregatorCounter).Inc(1)
-		raven.CaptureError(err, map[string]string{"unit": "dns", "action": "find records"})
-		log.Errorf("[dns]: %s for %s %s", err, qname, dns.TypeToString[qtype])
+		rcode = dns.RcodeServerFailure
 	}
 
-	return nil
+	if len(rrs) == 0 {
+		rcode = dns.RcodeNameError
+	}
+
+	//TODO: truncate the response if the payload (rrs) is over 512 bytes and set the TC header flag.
+
+	return
 }
 
-// e.g: domai.com.|A -> domain.com.
-func extractDomainFromKey(key []byte) []byte {
-	tmp := key[:bytes.Index(key, []byte("|"))]
-	return tmp
-}
-
-// Answer to AXFR request
-// The AXFR protocol treats the zone contents as an unordered set of RRs.
-// Except for the requirement that the transfer must begin and end with the SOA RR,
-// there is no requirement to send the RRs in any particular order or
-// grouped into response messages in any particular way.
-//
-// More info RFC5936: https://tools.ietf.org/html/rfc5936#section-2.2
-func handlerZoneTransfer(qname string, db *bolt.DB, m *dns.Msg, r *dns.Msg, w dns.ResponseWriter, metricsService *a.MetricsService) {
-	log.Info("[DNS] request a transfer zone for ", qname)
-	metricsService.GetOrCreateAggregator("nb-axfr-queries", ms.Counter, true).(a.AggregatorCounter).Inc(1)
-
-	soa, records, err := findRecordsAndSOAForAXFRInDB(db, qname)
-
-	if err != nil {
-		metricsService.GetOrCreateAggregator("error-axfr-queries", ms.Counter, true).(a.AggregatorCounter).Inc(1)
-
-		metricsService.GetOrCreateAggregator("error-axfr-queries", ms.Counter, true).(a.AggregatorCounter).Inc(1)
-		raven.CaptureError(err, map[string]string{"unit": "dns", "action": "axfr"})
-		log.Fatal("[AXFR] ", err)
-		m.SetRcode(r, dns.RcodeServerFailure)
-		w.WriteMsg(m)
-		return
+// lookupRecord find DNS records of type qtype for the domain qname.
+// For nonexistent domains (NXDOMAIN), it will return an empty, non-nil slice.
+// Currently supported qtype: A, AAAA, NS, CNAME, SOA, and TXT
+func (h *QuestionResolverHandler) lookupRecord(qname string, qtype uint16, recursionDesired bool, depth int) (rrs []dns.RR, err error) {
+	log.Debugf("Lookup for the record %s %s", qname, dns.TypeToString[qtype])
+	if depth++; depth > MaxRecursion {
+		return nil, ErrMaxRecursion
 	}
 
-	// push SOA RR at the begin of the answer
-	if soa != nil {
-		soaAnswer := RecordsToAnswer(soa)
-		m.Answer = append(m.Answer, soaAnswer[0])
+	if h.isALocalRecord(qname) {
+		rrs, err = h.lookupRecordInLocalDB(qname, qtype)
+	} else {
+		rrs = h.resolver.Resolve(qname, qtype)
 	}
 
-	recordsLen := len(records)
+	// Change the wildcard canonical name for the owner, the qname of the last record.
+	replaceWildcardByQnameInRRsIfThereAre(rrs, qname)
 
-	if recordsLen > 0 {
-		// NOTE: We have to chunk the records payload to avoid the error: message too large
-		// create a sliding window
-		if recordsLen < 500 {
-			for _, recordValues := range records {
-				for _, answer := range RecordsToAnswer(recordValues) {
-					m.Answer = append(m.Answer, answer)
-				}
-			}
-		} else {
-			sendRecordsByChunk(records, 500, m, w)
+	// If the response contains a CNAME, the search is restarted at the CNAME
+	// unless the response has the data for the canonical name or if the CNAME
+	// is the answer itself.
+	if recursionDesired && IsCnameRes(rrs) {
+		tmp := rrs[0].(*dns.CNAME)
+		rrstmp, err := h.lookupRecord(tmp.Target, qtype, recursionDesired, depth)
+
+		if err != nil {
+			return []dns.RR{}, err
 		}
+
+		// copy the CNAME RR into the answer section of the response.
+		return append(rrs, rrstmp...), err
 	}
 
-	// push SOA RR at the end of the answer
-	if soa != nil {
-		soaAnswer := RecordsToAnswer(soa)
-		m.Answer = append(m.Answer, soaAnswer[0])
-		w.WriteMsg(m)
-	}
+	// copy all RRs which match QTYPE into the answer section
+	return rrs, err
 }
 
-func findRecordsAndSOAForAXFRInDB(db *bolt.DB, qname string) ([]Record, [][]Record, error) {
-	var soa []Record
-	var records = [][]Record{}
+// lookupRecordInLocalDB look for a record in the local db and map the raw result into a RRs result
+func (h *QuestionResolverHandler) lookupRecordInLocalDB(qname string, qtype uint16) (rrs []dns.RR, err error) {
+	rawRRs, err := h.selectRawRecordInLocalDb([]byte(dns.Fqdn(qname)))
+	rrs, err = mapPairKeyRawRRsIntoRR(rawRRs)
 
-	err := db.View(func(tx *bolt.Tx) error {
-		bucket := tx.Bucket([]byte("records"))
+	if len(rrs) == 0 {
+		// If at some label, a match is impossible (i.e., the
+		// corresponding label does not exist), look to see if a
+		// the "*" label exists.
+		wildcardQname := utils.IntoWildcardQname(dns.Fqdn(qname))
+		rawRRs, err = h.selectRawRecordInLocalDb([]byte(wildcardQname))
+		rrs, err = mapPairKeyRawRRsIntoRR(rawRRs)
+	}
+
+	return
+}
+
+// selectRawRecordInLocalDb find a record in the bbolt DB and return a raw result
+func (h *QuestionResolverHandler) selectRawRecordInLocalDb(prefix []byte) (rawRecords PairKeyRRraw, err error) {
+	err = h.db.View(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket(RecordBucket)
+
 		c := bucket.Cursor()
 
-		for k, v := c.First(); k != nil; k, v = c.Next() {
-			if bytes.HasSuffix(extractDomainFromKey(k), []byte(qname)) {
-				var record []Record
-				err := json.Unmarshal([]byte(v), &record)
-
-				if err != nil {
-					return err
-				} else {
-					if dns.StringToType[record[0].Type] == dns.TypeSOA {
-						soa = record
-					} else {
-						records = append(records, record)
-					}
-				}
-			}
+		for k, v := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, v = c.Next() {
+			rawRecords = PairKeyRRraw{key: k, rrsRaw: v}
 		}
 
 		return nil
 	})
 
-	return soa, records, err
+	return
 }
 
-func sendRecordsByChunk(records [][]Record, sizeChunk int, m *dns.Msg, w dns.ResponseWriter) {
-	begin := 0
-	end := sizeChunk // arbitrary value found by manual testing
-	lenRecords := len(records)
+// Check if the Qname of a question is a local record related to the managed zones set in the config
+func (h *QuestionResolverHandler) isALocalRecord(qname string) (isLocal bool) {
+	return utils.IsALocalRR(qname, h.config.Zones)
+}
 
-	for begin < lenRecords {
-		for _, recordValues := range records[begin:u.Min(end, lenRecords)] {
-			for _, answer := range RecordsToAnswer(recordValues) {
-				m.Answer = append(m.Answer, answer)
+// getSOAForTheZone return the SOA for a specific zone
+// The Authority section of the response may optionally carry the
+// SOA RR for the authoritative data in the answer section.
+func (h *QuestionResolverHandler) getSOAForTheZone(zone string) (soa dns.RR) {
+	log.Info("looking SOA for the zone ", zone)
+
+	h.db.View(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket(RecordBucket)
+		soaRaw := bucket.Get(utils.Key(zone, dns.TypeSOA))
+
+		var soatmp []dns.SOA
+		err := json.Unmarshal(soaRaw, &soatmp)
+
+		if err != nil {
+			log.WithField("zone", zone).Error(err)
+			return nil
+		}
+
+		soa, err = dns.NewRR(soatmp[0].String())
+
+		if err != nil {
+			log.Error(err)
+			return nil
+		}
+
+		return nil
+	})
+
+	return
+}
+
+// smapPairKeyRawRRsIntoRR serialize a slice of RR get from bbolt into a dns.RR slice.
+// Yeah Go doesn't need generics...
+func mapPairKeyRawRRsIntoRR(pair PairKeyRRraw) (rrs []dns.RR, err error) {
+	if pair.key == nil || pair.rrsRaw == nil {
+		return []dns.RR{}, nil
+	}
+
+	qname, qtype := utils.ExtractQnameAndQtypeFromKey(pair.key)
+
+	switch qtype {
+	case dns.TypeA:
+		var tmp []dns.A
+		err = json.Unmarshal(pair.rrsRaw, &tmp)
+
+		if err != nil {
+			return
+		}
+
+		for _, val := range tmp {
+			rr, err := dns.NewRR(val.String())
+			if err != nil {
+				return nil, err
 			}
+			rrs = append(rrs, rr)
+		}
+		break
+	case dns.TypeAAAA:
+		var tmp []dns.AAAA
+		err = json.Unmarshal(pair.rrsRaw, &tmp)
+
+		if err != nil {
+			return
 		}
 
-		w.WriteMsg(m)
-		m.Answer = nil
+		for _, val := range tmp {
+			rr, err := dns.NewRR(val.String())
+			if err != nil {
+				return nil, err
+			}
+			rrs = append(rrs, rr)
+		}
+		break
+	case dns.TypeCNAME:
+		var tmp []dns.CNAME
+		err = json.Unmarshal(pair.rrsRaw, &tmp)
 
-		begin = begin + sizeChunk
-		end = end + sizeChunk
+		if err != nil {
+			return
+		}
+
+		for _, val := range tmp {
+			rr, err := dns.NewRR(val.String())
+			if err != nil {
+				return nil, err
+			}
+			rrs = append(rrs, rr)
+		}
+		break
+	case dns.TypeTXT:
+		var tmp []dns.TXT
+		err = json.Unmarshal(pair.rrsRaw, &tmp)
+
+		if err != nil {
+			return
+		}
+
+		for _, val := range tmp {
+			rr, err := dns.NewRR(val.String())
+			if err != nil {
+				return nil, err
+			}
+			rrs = append(rrs, rr)
+		}
+		break
+	case dns.TypeSOA:
+		var tmp []dns.SOA
+		err = json.Unmarshal(pair.rrsRaw, &tmp)
+
+		if err != nil {
+			return
+		}
+
+		for _, val := range tmp {
+			rr, err := dns.NewRR(val.String())
+			if err != nil {
+				return nil, err
+			}
+			rrs = append(rrs, rr)
+		}
+		break
+	case dns.TypePTR:
+		var tmp []dns.PTR
+		err = json.Unmarshal(pair.rrsRaw, &tmp)
+
+		if err != nil {
+			return
+		}
+
+		for _, val := range tmp {
+			rr, err := dns.NewRR(val.String())
+			if err != nil {
+				return nil, err
+			}
+			rrs = append(rrs, rr)
+		}
+		break
+	case dns.TypeNS:
+		var tmp []dns.NS
+		err = json.Unmarshal(pair.rrsRaw, &tmp)
+
+		if err != nil {
+			return
+		}
+
+		for _, val := range tmp {
+			rr, err := dns.NewRR(val.String())
+			if err != nil {
+				return nil, err
+			}
+			rrs = append(rrs, rr)
+		}
+		break
+	default:
+		return nil, fmt.Errorf("Can't unmarshall %s, his QTYPE doesn't exist or isn't supported yet", qname)
 	}
 
-	m.Answer = nil
+	return
 }
 
-func replaceWildcardByQnameInAnswer(qname string, records [][]Record) {
-	if len(records) > 0 {
-		record := records[0]
+// Check if this slice is not the content of a CNAME response after a lookup
+func IsNotCNAMERes(rrs []dns.RR) bool {
+	return !IsCnameRes(rrs)
+}
 
-		if isWildcardQName(record[0].Name) && record[0].Type == dns.TypeToString[dns.TypeCNAME] {
-			record[0].Name = qname
-			record[0].Ttl = 0
+// Check if this slice is the content of a CNAME response after a lookup
+// A CNAME response has only one RR in it with the qtype: CNAME
+func IsCnameRes(rrs []dns.RR) bool {
+	return len(rrs) == 1 && rrs[0].Header().Rrtype == dns.TypeCNAME
+}
+
+// replaceWildcardByQnameInRRsIfThereAre return a list of RR where all the wildcard domain has been
+// change for the qname. This dont't have an effect in the qname is already a wildcard domain.
+func replaceWildcardByQnameInRRsIfThereAre(rrs []dns.RR, qname string) []dns.RR {
+	for _, rr := range rrs {
+		if utils.IsAWildcardRR(rr) {
+			rr.Header().Name = qname
 		}
 	}
+
+	return rrs
 }

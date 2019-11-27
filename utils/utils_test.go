@@ -21,7 +21,7 @@ func TestShouldDetectIfDomainHasSubDomain(t *testing.T) {
 }
 
 func TestExtractQnameAndQtypeFromConsumerKey(t *testing.T) {
-	qname, qtype := ExtractQnameAndQtypeFromConsumerKey([]byte("www.example.com.|CNAME"))
+	qname, qtype := ExtractQnameAndQtypeFromKey([]byte("www.example.com.|CNAME"))
 	assert.Equal(t, "www.example.com", qname)
 	assert.Equal(t, dns.TypeCNAME, qtype)
 }
