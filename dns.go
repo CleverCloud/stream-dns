@@ -79,7 +79,23 @@ func (h *QuestionResolverHandler) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		"qclass":     dns.ClassToString[question.Qclass],
 	}).Info("Got a new DNS question")
 
-	rcode, msg.Answer = h.resolveQuestion(question, msg.RecursionDesired)
+	rcode, answers := h.resolveQuestion(question, msg.RecursionDesired)
+
+	// copy all RRs which match QTYPE or CNAME into the answer.
+	// If a match would take us out of the authoritative data,
+	// we have a referral. This happens when we encounter a
+	// node with NS RRs marking cuts along the bottom of a
+	// zone. Copy the NS RRs for the subzone into the authority
+	// section of the reply.
+	for _, rr := range answers {
+		// Normally resolveQuestion return only answers we have matching Qtype
+		// or Cname but we add this extra guard.
+		if rr.Header().Rrtype == question.Qtype || rr.Header().Rrtype == dns.TypeCNAME {
+			msg.Answer = append(msg.Answer, rr)
+		} else if rr.Header().Rrtype == dns.TypeNS {
+			msg.Ns = append(msg.Ns, rr)
+		}
+	}
 
 	log.WithFields(log.Fields{
 		"ip":         remoteAddr,
