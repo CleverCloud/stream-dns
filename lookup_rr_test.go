@@ -11,7 +11,7 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
-type DnsTestSuite struct {
+type LookupTestSuite struct {
 	suite.Suite
 	handler QuestionResolverHandler
 }
@@ -36,7 +36,7 @@ func testMarshalRR(rr []dns.RR) []byte {
 	return rrRaw
 }
 
-func (suite *DnsTestSuite) SetupTest() {
+func (suite *LookupTestSuite) SetupTest() {
 	var err error
 	dbPath := fmt.Sprintf("/tmp/%s.db", uuid.New().String())
 	db, err := bolt.Open(dbPath, 0600, nil)
@@ -47,13 +47,15 @@ func (suite *DnsTestSuite) SetupTest() {
 		suite.Fail("Can't create the bbolt database in /tmp/")
 	}
 
+	go serveDNS(db, DnsConfig{}, nil)
+
 }
 
-func (suite *DnsTestSuite) TearDownTest() {
+func (suite *LookupTestSuite) TearDownTest() {
 	suite.handler.db.Close()
 }
 
-func (suite *DnsTestSuite) TestShouldDetectCNAMEResponse() {
+func (suite *LookupTestSuite) TestShouldDetectCNAMEResponse() {
 	suite.True(IsCnameRes([]dns.RR{testRR("mx.miek.nl. 3600 IN CNAME miek.nl.")}))
 	suite.False(IsNotCNAMERes([]dns.RR{testRR("mx.miek.nl. 3600 IN CNAME miek.nl.")}))
 
@@ -68,7 +70,7 @@ func (suite *DnsTestSuite) TestShouldDetectCNAMEResponse() {
 	suite.True(IsNotCNAMERes([]dns.RR{testRR("www.example.org. 2700 IN A 127.0.0.1"), testRR("mx.miek.nl. 3600 IN CNAME miek.nl.")}))
 }
 
-func (suite *DnsTestSuite) TestShouldNotFindRecordsWhenBucketIsEmpty() {
+func (suite *LookupTestSuite) TestShouldNotFindRecordsWhenBucketIsEmpty() {
 	suite.handler.db.Update(func(tx *bolt.Tx) error {
 		if _, err := tx.CreateBucketIfNotExists(RecordBucket); err != nil {
 			suite.Fail("Can't seed the database")
@@ -81,7 +83,7 @@ func (suite *DnsTestSuite) TestShouldNotFindRecordsWhenBucketIsEmpty() {
 	suite.Nil(err)
 }
 
-func (suite *DnsTestSuite) TestShouldFindARecord() {
+func (suite *LookupTestSuite) TestShouldFindARecord() {
 	qname := "foo.bar.services.com."
 	qtype := dns.TypeA
 	key := []byte(qname + "|" + dns.TypeToString[qtype])
@@ -104,7 +106,7 @@ func (suite *DnsTestSuite) TestShouldFindARecord() {
 	suite.Nil(err)
 }
 
-func (suite *DnsTestSuite) TestShouldFindARecordWithMultipleValue() {
+func (suite *LookupTestSuite) TestShouldFindARecordWithMultipleValue() {
 	qname := "foo.bar.services.com."
 	qtype := dns.TypeA
 	key := []byte(qname + "|" + dns.TypeToString[qtype])
@@ -131,7 +133,7 @@ func (suite *DnsTestSuite) TestShouldFindARecordWithMultipleValue() {
 	suite.Nil(err)
 }
 
-func (suite *DnsTestSuite) TestShouldRecurseOnCname() {
+func (suite *LookupTestSuite) TestShouldRecurseOnCname() {
 	rrsExpected := make(map[string][]dns.RR)
 
 	rrsExpected["foo.bar.services.com.|CNAME"] = []dns.RR{testRR("foo.bar.services.com. 3600 IN CNAME toto.bar.services.com.")}
@@ -166,7 +168,7 @@ func (suite *DnsTestSuite) TestShouldRecurseOnCname() {
 	}
 }
 
-func (suite *DnsTestSuite) TestShouldNotRecurseOnCnameWhenFlagRecursionDesiredIsNotSet() {
+func (suite *LookupTestSuite) TestShouldNotRecurseOnCnameWhenFlagRecursionDesiredIsNotSet() {
 	recursionNotDesired := false
 	key := "foo.bar.services.com.|CNAME"
 	rrsExpected := make(map[string][]dns.RR)
@@ -195,7 +197,7 @@ func (suite *DnsTestSuite) TestShouldNotRecurseOnCnameWhenFlagRecursionDesiredIs
 	suite.Nil(err)
 }
 
-func (suite *DnsTestSuite) TestShouldHitMaxRecursionCnameOnRecursion() {
+func (suite *LookupTestSuite) TestShouldHitMaxRecursionCnameOnRecursion() {
 	rrsExpected := make(map[string][]dns.RR)
 
 	rrsExpected["foo.bar.services.com.|CNAME"] = []dns.RR{testRR("foo.bar.services.com. 3600 IN CNAME toto.bar.services.com.")}
@@ -224,7 +226,7 @@ func (suite *DnsTestSuite) TestShouldHitMaxRecursionCnameOnRecursion() {
 	suite.Equal(ErrMaxRecursion, err)
 }
 
-func (suite *DnsTestSuite) TestShouldFindAWildcardRecord() {
+func (suite *LookupTestSuite) TestShouldFindAWildcardRecord() {
 	qname := "foo.bar.services.com."
 	wildcard := "*.bar.services.com."
 	qtype := dns.TypeA
@@ -251,7 +253,7 @@ func (suite *DnsTestSuite) TestShouldFindAWildcardRecord() {
 	suite.Nil(err)
 }
 
-func (suite *DnsTestSuite) TestShouldReturnOnlyTheRecordWithoutTheWildcardWhenThePlainRecordExist() {
+func (suite *LookupTestSuite) TestShouldReturnOnlyTheRecordWithoutTheWildcardWhenThePlainRecordExist() {
 	rrsExpected := make(map[string][]dns.RR)
 	key := "foo.bar.services.com.|A"
 	rrsExpected[key] = []dns.RR{
@@ -277,6 +279,6 @@ func (suite *DnsTestSuite) TestShouldReturnOnlyTheRecordWithoutTheWildcardWhenTh
 	suite.Nil(err)
 }
 
-func TestDnsTestSuite(t *testing.T) {
-	suite.Run(t, new(DnsTestSuite))
+func TestLookupTestSuite(t *testing.T) {
+	suite.Run(t, new(LookupTestSuite))
 }
