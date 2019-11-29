@@ -170,11 +170,15 @@ func (h *QuestionResolverHandler) lookupRecord(qname string, qtype uint16, recur
 	// Change the wildcard canonical name for the owner, the qname of the last record.
 	replaceWildcardByQnameInRRsIfThereAre(rrs, qname)
 
-	// If the response contains a CNAME, the search is restarted at the CNAME
-	// unless the response has the data for the canonical name or if the CNAME
-	// is the answer itself.
-	if recursionDesired && IsCnameRes(rrs) {
+	// If the data at the node is a CNAME, and QTYPE doesn't
+	// match CNAME, copy the CNAME RR into the answer section
+	// of the response, change QNAME to the canonical name in
+	// the CNAME RR,
+	if recursionDesired && IsCnameRes(rrs) && qtype != dns.TypeCNAME {
 		tmp := rrs[0].(*dns.CNAME)
+
+		// The search is restarted at the CNAME unless the response has the
+		// data for the canonical name or if the CNAME is the answer itself.
 		rrstmp, err := h.lookupRecord(tmp.Target, qtype, recursionDesired, depth)
 
 		if err != nil {
@@ -265,6 +269,9 @@ func (h *QuestionResolverHandler) getSOAForTheZone(zone string) (soa dns.RR) {
 
 // smapPairKeyRawRRsIntoRR serialize a slice of RR get from bbolt into a dns.RR slice.
 // Yeah Go doesn't need generics...
+// FIXME: when go support generic, you can refactore this method. This is due to the method json.Unmarshal which doesn't support
+// unmarshaling of interface like dns.RR. So we have to create a concrete type (ex dns.A) and convert it into dns.RR at the end.
+// But yeah Go doesn't need generic and copy/paste is a good practice.
 func mapPairKeyRawRRsIntoRR(pair PairKeyRRraw) (rrs []dns.RR, err error) {
 	if pair.key == nil || pair.rrsRaw == nil {
 		return []dns.RR{}, nil
