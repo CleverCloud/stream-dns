@@ -216,25 +216,29 @@ func (h *QuestionResolverHandler) isALocalRecord(qname string) (isLocal bool) {
 // The Authority section of the response may optionally carry the
 // SOA RR for the authoritative data in the answer section.
 func (h *QuestionResolverHandler) getSOAForTheZone(zone string) (soa dns.RR) {
-	log.Info("looking SOA for the zone ", zone)
+	log.Debug("looking for the SOA of an authority zone", zone)
 
 	h.db.View(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(RecordBucket)
 		soaRaw := bucket.Get(utils.Key(zone, dns.TypeSOA))
 
-		var soatmp []dns.SOA
-		err := json.Unmarshal(soaRaw, &soatmp)
+		if soaRaw != nil {
+			var soatmp []dns.SOA
+			err := json.Unmarshal(soaRaw, &soatmp)
 
-		if err != nil {
-			log.WithField("zone", zone).Error(err)
-			return nil
-		}
+			if err != nil {
+				log.WithField("zone", zone).Error(err)
+				return nil
+			}
 
-		soa, err = dns.NewRR(soatmp[0].String())
+			soa, err = dns.NewRR(soatmp[0].String())
 
-		if err != nil {
-			log.Error(err)
-			return nil
+			if err != nil {
+				log.WithField("zone", zone).Error(err)
+				return nil
+			}
+		} else {
+			log.WithField("zone", zone).Debug("can't found SOA")
 		}
 
 		return nil
