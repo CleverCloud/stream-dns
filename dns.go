@@ -59,6 +59,7 @@ func NewQuestionResolverHandler(db *bolt.DB, config DnsConfig, ms *a.MetricsServ
 // ServeDNS is the handler registered in the dns.Server.Handler
 func (h *QuestionResolverHandler) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	requestID := uuid.New().String()
+	remoteAddr := w.RemoteAddr().String()
 
 	var rcode int
 	msg := dns.Msg{}
@@ -71,7 +72,7 @@ func (h *QuestionResolverHandler) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	}
 
 	log.WithFields(log.Fields{
-		"ip":         w.RemoteAddr,
+		"ip":         remoteAddr,
 		"request-id": requestID,
 		"domain":     question.Name,
 		"qtype":      dns.TypeToString[question.Qtype],
@@ -81,7 +82,7 @@ func (h *QuestionResolverHandler) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	rcode, msg.Answer = h.resolveQuestion(question, msg.RecursionDesired)
 
 	log.WithFields(log.Fields{
-		"ip":         w.RemoteAddr,
+		"ip":         remoteAddr,
 		"request-id": requestID,
 		"domain":     question.Name,
 		"qtype":      dns.TypeToString[question.Qtype],
