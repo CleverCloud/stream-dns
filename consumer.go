@@ -16,6 +16,7 @@ import (
 	"github.com/Shopify/sarama"
 	cluster "github.com/bsm/sarama-cluster"
 	"github.com/getsentry/raven-go"
+	"github.com/google/uuid"
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 	"github.com/xdg/scram"
@@ -64,7 +65,7 @@ func (x *XDGSCRAMClient) Done() bool {
 func NewKafkaConsumer(config KafkaConfig, db *bolt.DB, metricsService *a.MetricsService) (*KafkaConsumer, error) {
 	brokers := config.Address
 	topics := config.Topics
-	consumerGroup := "stream-dns" + utils.RandString(10)
+	consumerGroup := "stream-dns-" + uuid.New().String()
 
 	configConsumer, err := SetUpConsumerKafkaConfig(config)
 
@@ -83,6 +84,15 @@ func NewKafkaConsumer(config KafkaConfig, db *bolt.DB, metricsService *a.Metrics
 	if err != nil {
 		return nil, err
 	}
+
+	log.WithFields(log.Fields{
+		"consumer-group": consumerGroup,
+		"topics":         topics,
+		"address":        config.Address,
+		"sasl":           config.SaslEnable,
+		"tls":            config.TlsEnable,
+		"mechanism":      config.Mechanism,
+	}).Info("Consumer created and connected to kafka brokers")
 
 	return &KafkaConsumer{
 		db:             db,
