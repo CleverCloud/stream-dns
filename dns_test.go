@@ -65,7 +65,7 @@ func (suite *DnsTestSuite) TestShouldUseResolverForNoneAuthoritativeZone() {
 	suite.NotNil(r.Answer)
 	suite.NotNil(r.Ns)
 	suite.Nil(err)
-	suite.Equal(r.Rcode, dns.RcodeSuccess)
+	suite.Equal(dns.RcodeSuccess, r.Rcode, fmt.Sprintf("Expected %s but got %s", dns.RcodeToString[dns.RcodeSuccess], dns.RcodeToString[r.Rcode]))
 }
 
 func (suite *DnsTestSuite) TestShouldGetNxDomain() {
@@ -82,8 +82,8 @@ func (suite *DnsTestSuite) TestShouldGetNxDomain() {
 	suite.Nil(r.Extra)
 	suite.Nil(err)
 	suite.Equal(
+		dns.RcodeNameError,
 		r.Rcode,
-		dns.RcodeSuccess,
 		fmt.Sprintf("Expected %s but got %s", dns.RcodeToString[dns.RcodeNameError], dns.RcodeToString[r.Rcode]),
 	)
 }
