@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/suite"
 	bolt "go.etcd.io/bbolt"
@@ -25,7 +26,7 @@ var adminConfig = AdministratorConfig{Username: "test", Password: "test", Addres
 func (suite *HttpAdministratorSuite) SetupTest() {
 	var err error
 
-	dbPath := fmt.Sprintf("/tmp/%s.db", randSeq(10))
+	dbPath := fmt.Sprintf("/tmp/%s.db", uuid.New().String())
 	suite.DB, err = bolt.Open(dbPath, 0600, nil)
 
 	suite.DB.Update(func(tx *bolt.Tx) error {
