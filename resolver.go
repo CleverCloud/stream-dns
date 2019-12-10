@@ -33,6 +33,12 @@ func (r *Resolver) Resolve(qname string, qtype uint16) []dns.RR {
 	}).Info("starting a resolver request")
 
 	tmpRRs := r.resolver.Resolve(dns.Fqdn(qname), dns.TypeToString[qtype])
+
+	log.WithFields(log.Fields{
+		"qname": qname,
+		"qtype": dns.TypeToString[qtype],
+	}).Trace(tmpRRs)
+
 	rrs := r.mapRRFromDnsrIntoRR(tmpRRs)
 
 	log.WithFields(log.Fields{
@@ -49,8 +55,13 @@ func (r *Resolver) mapRRFromDnsrIntoRR(rrs dnsr.RRs) []dns.RR {
 	buf := []dns.RR{}
 
 	for _, rr := range rrs {
-		tmp, _ := dns.NewRR(rr.String())
-		buf = append(buf, tmp)
+		tmp, err := dns.NewRR(rr.String())
+
+		if err != nil {
+			log.WithField("rr", rr.String()).Error("can't map dnsr into dns.rr")
+		} else {
+			buf = append(buf, tmp)
+		}
 	}
 
 	return buf
