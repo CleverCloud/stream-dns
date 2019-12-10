@@ -1,8 +1,15 @@
 FROM golang:stretch
 
-ADD . /go/src/stream-dns
+ENV GO111MODULE on
 
-RUN go get -v stream-dns
+WORKDIR /go/src/stream-dns
+
+COPY go.sum ./go.sum
+COPY go.mod ./go.mod
+
+RUN go mod download
+
+ADD . .
 
 RUN CGO_ENABLED=0 GOOS=linux go install -a -installsuffix cgo stream-dns
 
