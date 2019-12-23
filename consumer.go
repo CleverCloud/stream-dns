@@ -170,7 +170,16 @@ func (c *KafkaConsumer) treatKafkaMessage(key []byte, payload []byte, disallowCn
 	log.WithField("domain", string(key)).Info("Got a new record")
 	c.ms.GetOrCreateAggregator("nb-record", ms.Counter, false).(a.AggregatorCounter).Inc(1)
 
-	rrs, err := c.transformRecordIntoRR(payload)
+	records, err := c.tryUnmarshalRecord(payload)
+
+	if err != nil {
+		log.WithField("key", string(key)).Error("Malformated record, unable to convert JSON into Records")
+		return
+	}
+
+	c.printMetadatas(records)
+
+	rrs, err := MapRecordsIntoRRs(records)
 
 	if err != nil {
 		log.WithField("key", string(key)).Error("Malformated record, unable to convert it into RR structure")
@@ -206,22 +215,6 @@ func (c *KafkaConsumer) checkGuardsOnRRsRegistration(domain string, qtype uint16
 
 			return
 		})
-	}
-
-	return
-}
-
-func (c *KafkaConsumer) transformRecordIntoRR(rawRecord []byte) (rrs []dns.RR, err error) {
-	record, err := c.tryUnmarshalRecord(rawRecord)
-
-	if err != nil {
-		return
-	}
-
-	rrs, err = MapRecordsIntoRRs(record)
-
-	if err != nil {
-		return
 	}
 
 	return
@@ -316,6 +309,18 @@ func (c *KafkaConsumer) logRecordDiffIfTheRecordWasAlreayHere(key []byte, rrs []
 					"after":  rrs,
 				}).Infof("The record %s has changed", string(key))
 			}
+		}
+	}
+}
+
+func (c *KafkaConsumer) printMetadatas(rrs []Record) {
+	for _, record := range rrs {
+		if record.Metadatas.Producer != "" && record.Metadatas.CreatedAt != 0 {
+			log.WithFields(log.Fields{
+				"name":       record.Name,
+				"created-at": time.Unix(int64(record.Metadatas.CreatedAt), 0),
+				"producer":   record.Metadatas.Producer,
+			}).Info("record metadatas")
 		}
 	}
 }
