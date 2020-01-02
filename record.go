@@ -6,14 +6,23 @@ import (
 	dns "github.com/miekg/dns"
 )
 
+type TimeStamp int64
+
+// Can be ignored
+type Metadatas struct {
+	CreatedAt TimeStamp // UNIX timestap when the record was created
+	Producer  string    // Name of the record producer
+}
+
 // Structure used to convert record
 // from kafka in a JSON format into RR
 type Record struct {
-	Name     string
-	Type     string
-	Content  string
-	Ttl      int
-	Priority int
+	Name      string
+	Type      string
+	Content   string
+	Ttl       int
+	Priority  int
+	Metadatas Metadatas `json:",omitempty"`
 }
 
 func A(rr string) *dns.A { r, _ := dns.NewRR(rr); return r.(*dns.A) }
