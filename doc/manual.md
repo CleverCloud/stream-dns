@@ -10,9 +10,17 @@
 * Run it
 * Configuration
 
+## What is Stream-DNS
+
+Stream-DNS is  a fresh new DNS server. It is different from other DNS servers, such as BIND, PowerDNS, CoreDNS, because it remain on the Event Sourcing pattern to manage his zones. For now, it rely on Kafka as event source. Which has the consequence that all DNS transaction relative to the manage of the zone, like DNS zone transfer, DNS Notify, etc. don't need to be implemented in the DNS server and can be implemented on other external services. 
+
+This event sourcing model allow it to emancipate to the primary/secondary DNS server architecture. All Stream-DNS instances on your infrastructure can be connected to the same event source, for instance, your Kafka cluster and get the content of the zones from this seed. You no longer need to have primary and secondary server to improve the reliability of your DNS. This will now rely on the  reliability of your event-source chosen, for example Kafka, which has a great reliability. So all the instances will be a primary server.
+
+Stream-DNS embeds a separated DNS resolver: [dnsr](https://github.com/domainr/dnsr), in order to resolve the query for non-authoritative zone. The authority server part and the resolver are clearly separated because  that can add trouble on debugging DNS , and the second reason is more abstract: the two functions, resolver and authority, are conceptually very different, and many practical problems with DNS come from ignorance of the actors of these two functions, their respective roles, and the practical problems they face.
+
 ## Installation
 
-Stream-dns is written in Go, but unless you want to compile Stream-dns yourself, you probably don’t care. The following sections detail how you can get Stream-dns binaries or install from source.
+Stream-DNS is written in Go, but unless you want to compile Stream-dns yourself, you probably don’t care. The following sections detail how you can get Stream-dns binaries or install from source.
 
 ### Binaries
 
