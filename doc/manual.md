@@ -48,7 +48,7 @@ $ ./stream-dns
 
 ## Configuration
 
-TODO
+Stream-dns remains on environment variables to get his configuration
 
 ## Run it
 
@@ -72,10 +72,56 @@ $ dig @127.0.0.1 -p 8053 a <my domain>
 
 ## Logging
 
-Use the log package: [logrus](https://github.com/Sirupsen/logrus). You can configure it through an environment variables:
+Use the log package: [logrus](https://github.com/Sirupsen/logrus) a a structured logger for Golang. You can configure it through an environment variables. Logging is controlled via the `LOG_LEVEL` environment variable. The actual level is optional to specify. If omitted, all logging will be enabled. If specified, the value of this environment variable must be one of the strings: `trace, debug, info, warn, error, fatal, panic`. 
+NOTE: support `CamelCase` and `uppercase`.
 
-TODO
+The log format can be controlled via the `LOG_FORMAT` environment variable. Possible value is: `json` or `plain`.
 
 ## Metrics
 
-TODO
+For now, Stream-DNS only support statsd external metric service. You can specify an address to connect so that Stream-DNS will send the metrics by setting the `DNS_STATSD_ADDRESS` environment variable.
+
+NOTE: look at [monitoring](https://github.com/CleverCloud/stream-dns/blob/master/doc/monitoring.md) if you want to know more about monitoring.
+
+## Administration tool
+
+The administrator server is a light embedded server that  allow you to check the health of a Stream-DNS instance. For known, the HTTP administrator server is exposed through an optional `JWT` authentication system. To setup it, you just have to set the environment variables:
+
+* DNS_ADMIN_USERNAME
+* DNS_ADMIN_PASSWORD
+* DNS_ADMIN_JWTSECRET
+
+You can set the environment value `DNS_ADMIN_ADDRESS` to specify at which address the administrator server will listen incoming request.
+
+
+See below for examples input forms: 
+
+**Sign in**:
+
+`curl -X -v http://<address>/signin -d '{"username":"<your username>","password":"<your password>"}'`
+
+**Search records following a pattern:**
+
+`curl --cookie token=<JWT token> "http://<address>/search?pattern=<your pattern>`
+
+## Integration with systemd
+
+This repository provide a [systemd UNIT file](https://github.com/CleverCloud/stream-dns/blob/add-doc/data/stream-dns.service) that you can place at: `/etc/systemd/system`, this is the location where they are placed by default. Unit files stored here are able to be started and stopped on-demand during a session. 
+
+To start the stream-DNS service in systemd run the command as shown:
+
+`systemctl start stream-dns`
+
+To verify that the service is running, run:
+
+`systemctl status stream-dns`
+
+To stop the service running service, run:
+
+`systemctl stop stream-dnsstatus`
+
+**To enable stream-dns service on boot up, run:**
+
+`systemctl enable stream-dns`
+
+NOTE: look at the man `systemctl(1)` to learn more on how to manage Systemd services. 
