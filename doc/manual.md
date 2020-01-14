@@ -1,4 +1,4 @@
-**Last modification**: 13/01/2020 by Coltellacci Alessio <alessio.coltellacci@clever-cloud.com>
+**Last modification**: 14/01/2020 by Coltellacci Alessio <alessio.coltellacci@clever-cloud.com>
 
 # Manual
 
@@ -90,6 +90,31 @@ $ dig @127.0.0.1 -p 8053 a <my domain>
 <the answers>
 ```
 
+## Add a new record
+
+ The Kafka message must be a JSON which follow the format:
+
+ **key**: `<domain>.|<qtype>` 
+
+**payload**:
+
+```json
+[
+	{
+        "name": "<FQDN>",
+        "type": "<qtype>",
+        "content": "<address>",
+        "priority": 0,
+        "metadatas": {
+            "createdAt": 1579024540, 
+			"producer": "<name>"
+        }
+    }
+]
+```
+
+NOTE: `createdAt` metadata is a timestamp UNIX.
+
 ## Logging
 
 Use the log package: [logrus](https://github.com/Sirupsen/logrus) a a structured logger for Golang. You can configure it through an environment variables. Logging is controlled via the `LOG_LEVEL` environment variable. The actual level is optional to specify. If omitted, all logging will be enabled. If specified, the value of this environment variable must be one of the strings: `trace, debug, info, warn, error, fatal, panic`. 
@@ -140,7 +165,7 @@ To stop the service running service, run:
 
 `systemctl stop stream-dnsstatus`
 
-**To enable stream-dns service on boot up, run:**
+To enable stream-dns service on boot up, run:
 
 `systemctl enable stream-dns`
 
