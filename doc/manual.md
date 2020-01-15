@@ -113,7 +113,10 @@ $ dig @127.0.0.1 -p 8053 a <my domain>
 ]
 ```
 
-NOTE: `createdAt` metadata is a timestamp UNIX.
+NOTES:
+
+* `createdAt` metadata is a timestamp UNIX.
+* metadatas is optimal
 
 ## Logging
 
