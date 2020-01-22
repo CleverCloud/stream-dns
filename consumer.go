@@ -1,11 +1,8 @@
 package main
 
 import (
-	"crypto/sha256"
-	"crypto/sha512"
 	"encoding/json"
 	"fmt"
-	"hash"
 	"strings"
 	"time"
 
@@ -14,55 +11,66 @@ import (
 	"stream-dns/utils"
 
 	"github.com/Shopify/sarama"
+	"github.com/apache/pulsar-client-go/pulsar"
 	cluster "github.com/bsm/sarama-cluster"
-	"github.com/getsentry/raven-go"
 	"github.com/google/uuid"
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
-	"github.com/xdg/scram"
 	bolt "go.etcd.io/bbolt"
 )
 
-type consumer interface {
-	Run(db *bolt.DB, metricsService a.MetricsService) error
+const (
+	KafkaType  = "kafka"
+	PulsarType = "pulsar"
+)
+
+type Consumer interface {
+	Run() error
+	DB() *bolt.DB
+	MetricsService() *a.MetricsService
 }
 
-type KafkaConsumer struct {
-	db             *bolt.DB
+// CommonConsumer is the common configuration infos for Consumer
+type CommonConsumer struct {
+	db                  *bolt.DB
+	ms                  *a.MetricsService
+	disallowCnameOnApex bool
+}
+
+type pulsarConsumer struct {
+	common CommonConsumer
+	config PulsarConfig
+	client pulsar.Client
+}
+
+type kafkaConsumer struct {
+	common         CommonConsumer
 	config         KafkaConfig
 	configConsumer *cluster.Config
 	consumer       *cluster.Consumer
-	ms             *a.MetricsService
 }
 
-var SHA256 scram.HashGeneratorFcn = func() hash.Hash { return sha256.New() }
-var SHA512 scram.HashGeneratorFcn = func() hash.Hash { return sha512.New() }
+func NewConsumer(typeConsumer string, config ConsumerConfig, common CommonConsumer) (Consumer, error) {
+	var consumer Consumer
+	var err error
 
-type XDGSCRAMClient struct {
-	*scram.Client
-	*scram.ClientConversation
-	scram.HashGeneratorFcn
-}
-
-func (x *XDGSCRAMClient) Begin(userName, password, authzID string) (err error) {
-	x.Client, err = x.HashGeneratorFcn.NewClient(userName, password, authzID)
-	if err != nil {
-		return err
+	switch typeConsumer {
+	case KafkaType:
+		consumer, err = NewKafkaConsumer(config.Kafka, common)
+	case PulsarType:
+		consumer, err = NewPulsarConsumer(config.Pulsar, common)
+	default:
+		return nil, fmt.Errorf("Unknow consumer type: %s", typeConsumer)
 	}
-	x.ClientConversation = x.Client.NewConversation()
-	return nil
+
+	if err != nil {
+		return nil, err
+	} else {
+		return consumer, nil
+	}
 }
 
-func (x *XDGSCRAMClient) Step(challenge string) (response string, err error) {
-	response, err = x.ClientConversation.Step(challenge)
-	return
-}
-
-func (x *XDGSCRAMClient) Done() bool {
-	return x.ClientConversation.Done()
-}
-
-func NewKafkaConsumer(config KafkaConfig, db *bolt.DB, metricsService *a.MetricsService) (*KafkaConsumer, error) {
+func NewKafkaConsumer(config KafkaConfig, common CommonConsumer) (*kafkaConsumer, error) {
 	brokers := config.Address
 	topics := config.Topics
 	consumerGroup := "stream-dns-" + uuid.New().String()
@@ -94,12 +102,11 @@ func NewKafkaConsumer(config KafkaConfig, db *bolt.DB, metricsService *a.Metrics
 		"mechanism":      config.Mechanism,
 	}).Info("Consumer created and connected to kafka brokers")
 
-	return &KafkaConsumer{
-		db:             db,
+	return &kafkaConsumer{
+		common:         common,
 		config:         config,
 		configConsumer: configConsumer,
 		consumer:       consumer,
-		ms:             metricsService,
 	}, nil
 }
 
@@ -143,7 +150,7 @@ func SetUpConsumerKafkaConfig(config KafkaConfig) (*cluster.Config, error) {
 
 // Run the kafka agent consumer which read all the records from the Kafka topics
 // Blocking call
-func (c *KafkaConsumer) Run(disallowCnameOnApex bool) error {
+func (c *kafkaConsumer) Run() error {
 	log.WithFields(log.Fields{
 		"address": c.config.Address,
 	}).Infof("Kafka consumer connected to the kafka nodes and ready to consume")
@@ -151,13 +158,14 @@ func (c *KafkaConsumer) Run(disallowCnameOnApex bool) error {
 	for {
 		select {
 		case m, ok := <-c.consumer.Messages():
-			c.treatKafkaMessage(m.Key, m.Value, disallowCnameOnApex) //TODO:print the timestamp
+			c.common.treatMessage(m.Key, m.Value)
+
 			if !ok {
 				continue
 			}
 
 		case err := <-c.consumer.Errors():
-			c.ms.GetOrCreateAggregator("kafka-consumer-error", ms.Counter, false).(a.AggregatorCounter).Inc(1)
+			c.MetricsService().GetOrCreateAggregator("kafka-consumer-error", ms.Counter, false).(a.AggregatorCounter).Inc(1)
 			log.WithError(err).Error("Kafka consumer error")
 		}
 	}
@@ -166,9 +174,69 @@ func (c *KafkaConsumer) Run(disallowCnameOnApex bool) error {
 	return nil
 }
 
-func (c *KafkaConsumer) treatKafkaMessage(key []byte, payload []byte, disallowCnameOnApex bool) {
+func (c *kafkaConsumer) DB() *bolt.DB {
+	return c.common.db
+}
+
+func (c *kafkaConsumer) MetricsService() *a.MetricsService {
+	return c.common.ms
+}
+
+func NewPulsarConsumer(config PulsarConfig, common CommonConsumer) (*pulsarConsumer, error) {
+	var auth pulsar.Authentication
+
+	if config.JWT != "" {
+		auth = pulsar.NewAuthenticationToken(config.JWT)
+	}
+
+	client, err := pulsar.NewClient(pulsar.ClientOptions{
+		URL:            config.Address,
+		Authentication: auth,
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &pulsarConsumer{
+		common: common,
+		config: config,
+		client: client,
+	}, nil
+}
+
+func (c *pulsarConsumer) Run() error {
+	consumer, err := c.client.Subscribe(pulsar.ConsumerOptions{
+		Topic:            c.config.Topic,
+		SubscriptionName: c.config.SubscriptionName,
+		Type:             pulsar.Shared,
+	})
+
+	if err != nil {
+		return err
+	}
+
+	defer consumer.Close()
+
+	consumerChan := consumer.Chan()
+
+	for {
+		msg := <-consumerChan
+		c.common.treatMessage([]byte(msg.Key()), msg.Payload())
+		consumer.Ack(msg)
+	}
+}
+
+func (c *pulsarConsumer) DB() *bolt.DB {
+	return c.common.db
+}
+
+func (c *pulsarConsumer) MetricsService() *a.MetricsService {
+	return c.common.ms
+}
+
+func (c CommonConsumer) treatMessage(key []byte, payload []byte) {
 	log.WithField("domain", string(key)).Info("Got a new record")
-	c.ms.GetOrCreateAggregator("nb-record", ms.Counter, false).(a.AggregatorCounter).Inc(1)
 
 	records, err := c.tryUnmarshalRecord(payload)
 
@@ -188,19 +256,11 @@ func (c *KafkaConsumer) treatKafkaMessage(key []byte, payload []byte, disallowCn
 
 	c.logRecordDiffIfTheRecordWasAlreayHere(key, rrs)
 
-	err = c.registerRecordAsBytesWithTheKeyInDB(key, rrs, disallowCnameOnApex)
-
-	if err != nil {
-		log.Error(err)
-		raven.CaptureError(err, nil)
-		c.ms.GetOrCreateAggregator("bad-record", ms.Counter, false).(a.AggregatorCounter).Inc(1)
-	} else {
-		c.ms.GetOrCreateAggregator("nb-record-saved", ms.Counter, false).(a.AggregatorCounter).Inc(1)
-	}
+	err = c.registerRecordAsBytesWithTheKeyInDB(key, rrs)
 }
 
-func (c *KafkaConsumer) checkGuardsOnRRsRegistration(domain string, qtype uint16, disallowCnameOnApex bool) (err error) {
-	if disallowCnameOnApex && c.isCnameOnApexDomain(domain, qtype) {
+func (c CommonConsumer) checkGuardsOnRRsRegistration(domain string, qtype uint16) (err error) {
+	if c.disallowCnameOnApex && c.isCnameOnApexDomain(domain, qtype) {
 		return fmt.Errorf("Can't register the domain: %s \tCNAME on APEX domain are disallow.\nYou must define at true the env variable DISALLOW_CNAME_ON_APEX to allow it", domain)
 	}
 
@@ -221,11 +281,11 @@ func (c *KafkaConsumer) checkGuardsOnRRsRegistration(domain string, qtype uint16
 }
 
 // Register a record from a consumer message e.g: kafka in the Bolt database
-func (c *KafkaConsumer) registerRecordAsBytesWithTheKeyInDB(key []byte, rrs []dns.RR, disallowCnameOnApex bool) error {
+func (c CommonConsumer) registerRecordAsBytesWithTheKeyInDB(key []byte, rrs []dns.RR) error {
 	domain, qtype := utils.ExtractQnameAndQtypeFromKey(key)
 	isSubDomain := utils.IsSubdomain(domain)
 
-	err := c.checkGuardsOnRRsRegistration(domain, qtype, disallowCnameOnApex)
+	err := c.checkGuardsOnRRsRegistration(domain, qtype)
 
 	if err != nil {
 		return err
@@ -267,18 +327,18 @@ func (c *KafkaConsumer) registerRecordAsBytesWithTheKeyInDB(key []byte, rrs []dn
 	return err
 }
 
-func (c *KafkaConsumer) isCnameOnApexDomain(domain string, qtype uint16) bool {
+func (c CommonConsumer) isCnameOnApexDomain(domain string, qtype uint16) bool {
 	return utils.IsApexDomain(domain) && dns.TypeCNAME == qtype
 }
 
-func (c *KafkaConsumer) tryUnmarshalRecord(rawRecord []byte) (records []Record, err error) {
+func (c CommonConsumer) tryUnmarshalRecord(rawRecord []byte) (records []Record, err error) {
 	err = json.Unmarshal(rawRecord, &records)
 	return
 }
 
 // Look in the DB if the RR already exist
 // If yes, we print the diff between the two RR
-func (c *KafkaConsumer) logRecordDiffIfTheRecordWasAlreayHere(key []byte, rrs []dns.RR) {
+func (c CommonConsumer) logRecordDiffIfTheRecordWasAlreayHere(key []byte, rrs []dns.RR) {
 	var previousRRraw []byte
 	var previousRR []dns.RR
 
@@ -313,7 +373,7 @@ func (c *KafkaConsumer) logRecordDiffIfTheRecordWasAlreayHere(key []byte, rrs []
 	}
 }
 
-func (c *KafkaConsumer) printMetadatas(rrs []Record) {
+func (c CommonConsumer) printMetadatas(rrs []Record) {
 	for _, record := range rrs {
 		if record.Metadatas.Producer != "" && record.Metadatas.CreatedAt != 0 {
 			log.WithFields(log.Fields{

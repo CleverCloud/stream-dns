@@ -6,16 +6,15 @@ import (
 )
 
 type Config struct {
-	Kafka               KafkaConfig
-	Dns                 DnsConfig
-	Agent               AgentConfig
-	Statsd              StatsdConfig
-	Administrator       AdministratorConfig
-	PathDB              string
-	sentryDSN           string
-	DisallowCNAMEonAPEX bool
-	InstanceId          string
-	LocalRecords        string
+	Consumer      ConsumerConfig
+	Dns           DnsConfig
+	Agent         AgentConfig
+	Statsd        StatsdConfig
+	Administrator AdministratorConfig
+	PathDB        string
+	sentryDSN     string
+	InstanceId    string
+	LocalRecords  string
 }
 
 type StatsdConfig struct {
@@ -23,9 +22,17 @@ type StatsdConfig struct {
 	Prefix  string // can be empty
 }
 
+type ConsumerConfig struct {
+	Kafka               KafkaConfig
+	Pulsar              PulsarConfig
+	DisallowCnameOnAPEX bool
+}
+
 type PulsarConfig struct {
-	Address string
-	Topic   string
+	Address          string
+	Topic            string
+	JWT              string
+	SubscriptionName string
 }
 
 type KafkaConfig struct {

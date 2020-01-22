@@ -63,13 +63,21 @@ func main() {
 	raven.SetDSN(config.sentryDSN)
 
 	db := setupRecordsDatabase(config.PathDB)
+
+	defer db.Close()
+
 	setupLocalRecords(db, config.LocalRecords, config.Dns.Zones)
 
 	agent := setupMetricAgent(config.Agent, config.Statsd, instanceID)
 
 	metricsService := a.NewMetricsService(agent.Input, config.Agent.FlushInterval)
 
-	setupKafkaConsumer(db, config.Kafka, &metricsService, config.DisallowCNAMEonAPEX)
+	err := setupConsumer(db, config.Consumer, &metricsService)
+
+	if err != nil {
+		log.Error(err)
+		return
+	}
 
 	setupDNSserveDNSr(db, config.Dns, &metricsService)
 
@@ -81,7 +89,6 @@ func main() {
 
 	s := <-sig
 
-	db.Close()
 	log.WithFields(log.Fields{"signal": s}).Info("Signal received, stopping")
 }
 
@@ -117,14 +124,23 @@ func setupInstanceID(id string) string {
 
 func getConfiguration() Config {
 	return Config{
-		KafkaConfig{
-			Address:    viper.GetStringSlice("kafka_address"),
-			Topics:     viper.GetStringSlice("kafka_topics"),
-			SaslEnable: viper.GetBool("kafka_sasl_enable"),
-			TlsEnable:  viper.GetBool("kafka_tls_enable"),
-			User:       viper.GetString("kafka_user"),
-			Password:   viper.GetString("kafka_password"),
-			Mechanism:  viper.GetString("kafka_sasl_mechanism"),
+		ConsumerConfig{
+			Kafka: KafkaConfig{
+				Address:    viper.GetStringSlice("kafka_address"),
+				Topics:     viper.GetStringSlice("kafka_topics"),
+				SaslEnable: viper.GetBool("kafka_sasl_enable"),
+				TlsEnable:  viper.GetBool("kafka_tls_enable"),
+				User:       viper.GetString("kafka_user"),
+				Password:   viper.GetString("kafka_password"),
+				Mechanism:  viper.GetString("kafka_sasl_mechanism"),
+			},
+			Pulsar: PulsarConfig{
+				Address:          viper.GetString("pulsar_address"),
+				Topic:            viper.GetString("pulsar_topic"),
+				JWT:              viper.GetString("pulsar_jwt"),
+				SubscriptionName: viper.GetString("pulsar_subscription_name"),
+			},
+			DisallowCnameOnAPEX: viper.GetBool("disallow_cname_on_apex"),
 		},
 		DnsConfig{
 			viper.GetString("address"),
@@ -148,7 +164,6 @@ func getConfiguration() Config {
 		},
 		viper.GetString("pathdb"),
 		viper.GetString("sentry_dsn"),
-		viper.GetBool("disallow_cname_on_apex"),
 		viper.GetString("instance_id"),
 		viper.GetString("local_records"),
 	}
@@ -188,15 +203,30 @@ func setupMetricAgent(cfg AgentConfig, statsdCfg StatsdConfig, instanceID string
 	return
 }
 
-func setupKafkaConsumer(db *bolt.DB, cfg KafkaConfig, metricsService *a.MetricsService, disallowCnameOnAPEX bool) {
-	kafkaConsumer, err := NewKafkaConsumer(cfg, db, metricsService)
+func setupConsumer(db *bolt.DB, cfg ConsumerConfig, metricsService *a.MetricsService) error {
+	var typeConsumer string
+
+	if len(cfg.Kafka.Address) != 0 {
+		typeConsumer = KafkaType
+	}
+	if cfg.Pulsar.Address != "" {
+		typeConsumer = PulsarType
+	}
+
+	if typeConsumer == "" {
+		return fmt.Errorf("dan't find the type of consumer, please verify your configuration")
+	}
+
+	consumer, err := NewConsumer(typeConsumer, cfg, CommonConsumer{db, metricsService, cfg.DisallowCnameOnAPEX})
 
 	if err != nil {
 		log.Panic(err)
 		raven.CaptureError(err, nil)
 	}
 
-	go kafkaConsumer.Run(disallowCnameOnAPEX)
+	go consumer.Run()
+
+	return nil
 }
 
 func setupDNSserveDNSr(db *bolt.DB, cfg DnsConfig, metricsService *a.MetricsService) {
