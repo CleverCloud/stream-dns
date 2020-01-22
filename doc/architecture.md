@@ -2,8 +2,9 @@
 
 # Architecture 
 
-*NOTE: This part is mostly for people who want to understand how stream-DNS work internally.*
-
+**NOTES:**
+* This part is mostly for people who want to understand how stream-DNS work internally.
+* :warning: if the mermaid diagrams are not displayed, you can copy/past them into the [mermaid live editor](https://mermaid-js.github.io/mermaid-live-editor) to see them.
 ## Overview
 
 This mermaid diagram give you an overview of major components that compose stream-DNS:
