@@ -4,6 +4,7 @@ go 1.12
 
 require (
 	github.com/Shopify/sarama v1.23.0
+	github.com/apache/pulsar-client-go v0.0.0-20200116214305-4d788d9935ed
 	github.com/bsm/sarama-cluster v2.1.15+incompatible
 	github.com/certifi/gocertifi v0.0.0-20190506164543-d2eda7129713 // indirect
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible
